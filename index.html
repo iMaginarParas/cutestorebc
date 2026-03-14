@@ -1,195 +1,579 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>My Awesome Product | Buy Now</title>
-    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-    <style>
-        :root {
-            --primary: #3399cc;
-            --dark: #1a1a1a;
-            --light: #f4f4f9;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: var(--light);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-            margin: 0;
-        }
-        .card {
-            background: white;
-            padding: 2rem;
-            border-radius: 12px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            width: 100%;
-            max-width: 400px;
-        }
-        h2 { margin-top: 0; color: var(--dark); }
-        .price { font-size: 1.5rem; color: var(--primary); font-weight: bold; margin-bottom: 1.5rem; }
-        .form-group { margin-bottom: 1rem; }
-        label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; color: #666; }
-        input {
-            width: 100%;
-            padding: 0.8rem;
-            border: 1px solid #ddd;
-            border-radius: 6px;
-            box-sizing: border-box;
-        }
-        button {
-            width: 100%;
-            padding: 1rem;
-            background-color: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 1rem;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-        button:hover { background-color: #287da7; }
-        button:disabled { background-color: #ccc; }
-        #status { margin-top: 1rem; font-size: 0.85rem; text-align: center; }
-        .history-link {
-            display: block;
-            text-align: center;
-            margin-top: 1.5rem;
-            font-size: 0.8rem;
-            color: #888;
-            text-decoration: none;
-        }
-    </style>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Cute Store ✿</title>
+<meta name="description" content="Cute Store — handpicked things that make you smile."/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;0,900;1,400;1,700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --rose:#fce4ec;--rose2:#f8bbd0;--blush:#fff0f5;
+  --ink:#1a0a0f;--dark:#2d1520;--mid:#7a4a58;--mute:#c9a0b0;
+  --accent:#e91e8c;--accent2:#ff6db6;--gold:#f4a261;
+  --white:#fffbfd;--border:#f0d0dc;
+  --ff:'DM Sans',sans-serif;--serif:'Playfair Display',Georgia,serif;--mono:'DM Mono',monospace;
+  --r:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--blush);color:var(--ink);font-family:var(--ff);overflow-x:hidden;min-height:100vh}
+
+/* ── NOISE TEXTURE ── */
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.025;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E")}
+
+/* ── NAV ── */
+nav{position:sticky;top:0;z-index:100;background:rgba(255,251,253,.92);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);padding:0 40px;display:flex;align-items:center;height:68px;gap:32px}
+.nav-logo{display:flex;align-items:center;gap(10px);text-decoration:none}
+.nav-logo-mark{width:36px;height:36px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;box-shadow:0 4px 12px rgba(233,30,140,.3)}
+.nav-logo-text{font-family:var(--serif);font-size:1.4rem;font-weight:700;font-style:italic;color:var(--ink);margin-left:10px;letter-spacing:-.01em}
+.nav-logo-text span{color:var(--accent)}
+.nav-links{display:flex;gap:24px;margin-left:8px}
+.nav-links a{font-size:.85rem;font-weight:500;color:var(--mid);text-decoration:none;letter-spacing:.01em;transition:color .2s}
+.nav-links a:hover{color:var(--accent)}
+.nav-right{margin-left:auto;display:flex;align-items:center;gap:16px}
+.nav-cart{position:relative;width:40px;height:40px;background:var(--rose);border-radius:50%;border:none;cursor:pointer;font-size:1.1rem;display:flex;align-items:center;justify-content:center;transition:background .2s}
+.nav-cart:hover{background:var(--rose2)}
+.cart-count{position:absolute;top:-2px;right:-2px;background:var(--accent);color:#fff;font-size:.6rem;font-weight:700;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);display:none}
+.cart-count.show{display:flex}
+
+/* ── HERO ── */
+.hero{padding:72px 40px 56px;text-align:center;position:relative;overflow:hidden}
+.hero-bg{position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(233,30,140,.07),transparent);pointer-events:none}
+.hero-dots{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.hero-dots span{position:absolute;border-radius:50%;background:var(--accent);opacity:.06}
+.hero-eyebrow{display:inline-flex;align-items:center;gap:8px;background:var(--rose);border:1px solid var(--rose2);border-radius:20px;padding:6px 16px;font-size:.72rem;font-weight:600;color:var(--mid);letter-spacing:.08em;text-transform:uppercase;margin-bottom:20px;font-family:var(--mono)}
+.hero-eyebrow span{color:var(--accent)}
+h1.hero-title{font-family:var(--serif);font-size:clamp(3rem,6vw,5.5rem);font-weight:900;line-height:1.05;letter-spacing:-.02em;margin-bottom:16px}
+h1.hero-title em{font-style:italic;color:var(--accent)}
+.hero-sub{font-size:1.05rem;color:var(--mid);max-width:480px;margin:0 auto 32px;line-height:1.7;font-weight:300}
+.hero-actions{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap}
+.btn-shop{background:var(--accent);color:#fff;border:none;border-radius:40px;padding:14px 32px;font-family:var(--ff);font-size:.9rem;font-weight:600;cursor:pointer;transition:all .2s;box-shadow:0 8px 24px rgba(233,30,140,.25);letter-spacing:.02em}
+.btn-shop:hover{background:var(--dark);transform:translateY(-2px);box-shadow:0 12px 32px rgba(233,30,140,.3)}
+.btn-ghost-sm{background:transparent;color:var(--mid);border:1.5px solid var(--border);border-radius:40px;padding:13px 28px;font-family:var(--ff);font-size:.88rem;font-weight:500;cursor:pointer;transition:all .2s}
+.btn-ghost-sm:hover{border-color:var(--accent);color:var(--accent)}
+.hero-stats{display:flex;align-items:center;justify-content:center;gap:32px;margin-top:40px;padding-top:32px;border-top:1px solid var(--border)}
+.hero-stat{text-align:center}
+.hero-stat-num{font-family:var(--serif);font-size:1.6rem;font-weight:700;color:var(--ink)}
+.hero-stat-lbl{font-size:.72rem;color:var(--mute);font-weight:500;letter-spacing:.04em;text-transform:uppercase;margin-top:2px}
+
+/* ── TICKER ── */
+.ticker{background:var(--accent);padding:10px 0;overflow:hidden}
+.ticker-inner{display:flex;gap:0;animation:tick 20s linear infinite;white-space:nowrap}
+.ticker-inner span{font-size:.72rem;font-weight:600;color:rgba(255,255,255,.9);letter-spacing:.1em;text-transform:uppercase;padding:0 24px;flex-shrink:0}
+.ticker-inner span.dot{color:rgba(255,255,255,.4);padding:0}
+@keyframes tick{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+/* ── SECTION ── */
+.section{padding:64px 40px}
+.section-head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:36px;gap:16px}
+.section-label{font-family:var(--mono);font-size:.68rem;color:var(--mute);letter-spacing:.14em;text-transform:uppercase;margin-bottom:6px}
+.section-title{font-family:var(--serif);font-size:clamp(1.8rem,3vw,2.6rem);font-weight:700;line-height:1.15;letter-spacing:-.01em}
+.section-title em{font-style:italic;color:var(--accent)}
+.view-all{font-size:.82rem;font-weight:600;color:var(--mid);text-decoration:none;display:flex;align-items:center;gap:4px;white-space:nowrap;flex-shrink:0}
+.view-all:hover{color:var(--accent)}
+
+/* ── PRODUCT GRID ── */
+.product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:24px}
+
+/* ── PRODUCT CARD ── */
+.product-card{background:var(--white);border-radius:var(--r);border:1px solid var(--border);overflow:hidden;transition:transform .25s,box-shadow .25s;cursor:pointer;position:relative;group:1}
+.product-card:hover{transform:translateY(-6px);box-shadow:0 20px 48px rgba(233,30,140,.12)}
+.card-img-wrap{position:relative;aspect-ratio:1;overflow:hidden;background:var(--rose)}
+.card-img-wrap img{width:100%;height:100%;object-fit:cover;transition:transform .4s ease}
+.product-card:hover .card-img-wrap img{transform:scale(1.06)}
+.card-img-placeholder{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--mute)}
+.card-img-placeholder span{font-size:2.5rem}
+.card-img-placeholder p{font-size:.72rem;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.card-badge{position:absolute;top:12px;left:12px;background:var(--accent);color:#fff;font-size:.65rem;font-weight:700;padding:4px 10px;border-radius:20px;font-family:var(--mono);letter-spacing:.04em}
+.card-quick-buy{position:absolute;bottom:12px;left:12px;right:12px;background:var(--ink);color:#fff;border:none;border-radius:40px;padding:10px;font-family:var(--ff);font-size:.8rem;font-weight:600;cursor:pointer;transform:translateY(8px);opacity:0;transition:all .2s}
+.product-card:hover .card-quick-buy{opacity:1;transform:translateY(0)}
+.card-body{padding:16px 18px 20px}
+.card-name{font-weight:600;font-size:.95rem;margin-bottom:4px;color:var(--ink);line-height:1.3}
+.card-desc{font-size:.78rem;color:var(--mute);line-height:1.5;margin-bottom:12px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card-footer{display:flex;align-items:center;justify-content:space-between}
+.card-price{font-family:var(--serif);font-size:1.2rem;font-weight:700;color:var(--ink)}
+.card-price span{font-size:.75rem;color:var(--mute);font-family:var(--mono);font-weight:400}
+.card-add{width:34px;height:34px;background:var(--rose);border:none;border-radius:50%;cursor:pointer;font-size:1rem;display:flex;align-items:center;justify-content:center;transition:all .2s;flex-shrink:0}
+.card-add:hover{background:var(--accent);color:#fff;transform:scale(1.1)}
+
+/* ── EMPTY STATE ── */
+.empty-store{text-align:center;padding:80px 24px;grid-column:1/-1}
+.empty-store .big-icon{font-size:4rem;margin-bottom:16px;display:block;animation:float 3s ease-in-out infinite}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+.empty-store h3{font-family:var(--serif);font-size:1.6rem;font-weight:700;margin-bottom:8px}
+.empty-store p{color:var(--mute);font-size:.9rem;max-width:320px;margin:0 auto}
+
+/* ── FEATURES ── */
+.features{background:var(--rose);border-top:1px solid var(--rose2);border-bottom:1px solid var(--rose2);padding:40px}
+.features-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:24px;max-width:900px;margin:0 auto;text-align:center}
+.feat{display:flex;flex-direction:column;align-items:center;gap:10px}
+.feat-icon{width:48px;height:48px;background:var(--white);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.3rem;box-shadow:0 2px 8px rgba(233,30,140,.1)}
+.feat-title{font-size:.85rem;font-weight:600;color:var(--ink)}
+.feat-desc{font-size:.75rem;color:var(--mid);line-height:1.5}
+
+/* ── FOOTER ── */
+footer{background:var(--ink);padding:48px 40px 32px;color:rgba(255,255,255,.7)}
+.footer-top{display:flex;align-items:flex-start;justify-content:space-between;gap:40px;margin-bottom:40px;flex-wrap:wrap}
+.footer-brand .logo-text{font-family:var(--serif);font-size:1.4rem;font-style:italic;color:#fff;margin-bottom:8px}
+.footer-brand .logo-text span{color:var(--accent2)}
+.footer-brand p{font-size:.82rem;max-width:220px;line-height:1.6}
+.footer-links h4{color:#fff;font-size:.8rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px;font-family:var(--mono)}
+.footer-links ul{list-style:none;display:flex;flex-direction:column;gap:8px}
+.footer-links a{font-size:.82rem;color:rgba(255,255,255,.5);text-decoration:none;transition:color .2s}
+.footer-links a:hover{color:var(--accent2)}
+.footer-bottom{border-top:1px solid rgba(255,255,255,.08);padding-top:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+.footer-bottom p{font-size:.72rem;color:rgba(255,255,255,.3);font-family:var(--mono)}
+.footer-hearts{font-size:.72rem;color:rgba(255,255,255,.3);font-family:var(--mono)}
+.footer-hearts span{color:var(--accent2)}
+
+/* ── CART DRAWER ── */
+.cart-overlay{position:fixed;inset:0;background:rgba(26,10,15,.5);z-index:200;opacity:0;pointer-events:none;transition:opacity .3s;backdrop-filter:blur(4px)}
+.cart-overlay.open{opacity:1;pointer-events:all}
+.cart-drawer{position:fixed;right:0;top:0;bottom:0;width:400px;background:var(--white);z-index:201;transform:translateX(100%);transition:transform .35s cubic-bezier(.4,0,.2,1);display:flex;flex-direction:column;box-shadow:-12px 0 40px rgba(26,10,15,.15)}
+.cart-drawer.open{transform:translateX(0)}
+.cart-header{padding:24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.cart-header h2{font-family:var(--serif);font-size:1.3rem;font-weight:700}
+.cart-close{width:36px;height:36px;background:var(--rose);border:none;border-radius:50%;font-size:1rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .2s}
+.cart-close:hover{background:var(--rose2)}
+.cart-items{flex:1;overflow-y:auto;padding:16px 24px;display:flex;flex-direction:column;gap:12px}
+.cart-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--mute)}
+.cart-empty span{font-size:3rem}
+.cart-empty p{font-size:.85rem}
+.cart-item{display:flex;gap:12px;background:var(--blush);border-radius:12px;padding:12px;border:1px solid var(--border)}
+.cart-item-img{width:64px;height:64px;border-radius:8px;object-fit:cover;background:var(--rose);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.5rem}
+.cart-item-img img{width:100%;height:100%;object-fit:cover;border-radius:8px}
+.cart-item-info{flex:1;min-width:0}
+.cart-item-name{font-size:.85rem;font-weight:600;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cart-item-price{font-family:var(--mono);font-size:.8rem;color:var(--accent);font-weight:500}
+.cart-item-qty{display:flex;align-items:center;gap:8px;margin-top:8px}
+.qty-btn{width:24px;height:24px;background:var(--white);border:1px solid var(--border);border-radius:50%;font-size:.85rem;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;transition:all .15s}
+.qty-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+.qty-num{font-family:var(--mono);font-size:.8rem;font-weight:600;min-width:20px;text-align:center}
+.cart-item-remove{background:none;border:none;color:var(--mute);font-size:1rem;cursor:pointer;padding:4px;margin-left:auto;align-self:flex-start;transition:color .2s}
+.cart-item-remove:hover{color:var(--accent)}
+.cart-footer{padding:20px 24px;border-top:1px solid var(--border)}
+.cart-total-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px}
+.cart-total-lbl{font-size:.9rem;font-weight:600}
+.cart-total-val{font-family:var(--serif);font-size:1.5rem;font-weight:700;color:var(--ink)}
+.btn-checkout{width:100%;background:var(--accent);color:#fff;border:none;border-radius:40px;padding:16px;font-family:var(--ff);font-size:.95rem;font-weight:600;cursor:pointer;transition:all .2s;box-shadow:0 8px 20px rgba(233,30,140,.25);letter-spacing:.02em}
+.btn-checkout:hover{background:var(--dark);transform:translateY(-1px)}
+.btn-checkout:disabled{background:var(--mute);cursor:not-allowed;transform:none;box-shadow:none}
+.secure-note{text-align:center;margin-top:10px;font-size:.68rem;color:var(--mute);font-family:var(--mono);letter-spacing:.04em}
+
+/* ── CHECKOUT MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(26,10,15,.6);z-index:300;align-items:center;justify-content:center;backdrop-filter:blur(8px)}
+.modal-overlay.open{display:flex}
+.modal-box{background:var(--white);border-radius:20px;padding:40px;width:100%;max-width:440px;position:relative;animation:popIn .3s cubic-bezier(.34,1.56,.64,1)}
+@keyframes popIn{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+.modal-close{position:absolute;top:16px;right:16px;width:32px;height:32px;background:var(--rose);border:none;border-radius:50%;cursor:pointer;font-size:.9rem;display:flex;align-items:center;justify-content:center}
+.modal-close:hover{background:var(--rose2)}
+.modal-title{font-family:var(--serif);font-size:1.6rem;font-weight:700;margin-bottom:4px}
+.modal-sub{font-size:.8rem;color:var(--mute);margin-bottom:24px;font-family:var(--mono)}
+.fg{display:flex;flex-direction:column;gap:5px;margin-bottom:14px}
+.fg label{font-size:.68rem;font-weight:600;color:var(--mid);letter-spacing:.08em;text-transform:uppercase;font-family:var(--mono)}
+.fg input{border:1.5px solid var(--border);border-radius:10px;background:var(--blush);color:var(--ink);padding:11px 14px;font-family:var(--ff);font-size:.9rem;outline:none;transition:border .2s}
+.fg input:focus{border-color:var(--accent)}
+.order-summary{background:var(--rose);border-radius:12px;padding:16px;margin:16px 0}
+.order-summary-title{font-size:.72rem;font-weight:600;color:var(--mid);text-transform:uppercase;letter-spacing:.08em;font-family:var(--mono);margin-bottom:10px}
+.order-item-row{display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:4px;color:var(--dark)}
+.order-total-row{display:flex;justify-content:space-between;font-size:.95rem;font-weight:700;margin-top:8px;padding-top:8px;border-top:1px solid var(--rose2);color:var(--ink)}
+#pay-btn{width:100%;background:var(--accent);color:#fff;border:none;border-radius:40px;padding:15px;font-family:var(--ff);font-size:.9rem;font-weight:600;cursor:pointer;transition:background .2s;margin-top:4px;box-shadow:0 6px 18px rgba(233,30,140,.25)}
+#pay-btn:hover{background:var(--dark)}
+#pay-btn:disabled{background:var(--mute);cursor:not-allowed;box-shadow:none}
+.modal-secure{text-align:center;margin-top:10px;font-size:.65rem;color:var(--mute);font-family:var(--mono)}
+
+/* ── LOADING ── */
+.loading-grid{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:24px;width:100%}
+.skeleton{background:linear-gradient(90deg,var(--rose) 25%,var(--rose2) 50%,var(--rose) 75%);background-size:200% 100%;animation:shimmer 1.4s ease-in-out infinite;border-radius:var(--r)}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.skel-card{border-radius:var(--r);overflow:hidden;border:1px solid var(--border)}
+.skel-img{height:220px}
+.skel-body{padding:16px;display:flex;flex-direction:column;gap:8px}
+.skel-line{height:14px;border-radius:4px}
+.skel-line.short{width:60%}
+
+/* ── TOAST ── */
+#toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;font-family:var(--mono);font-size:.78rem;padding:12px 24px;border-radius:40px;opacity:0;transition:all .3s;z-index:400;pointer-events:none;white-space:nowrap}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+/* ── SUCCESS ── */
+.success-screen{display:none;position:fixed;inset:0;background:var(--blush);z-index:500;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px}
+.success-screen.show{display:flex;animation:fadeIn .4s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+
+@media(max-width:768px){
+  nav{padding:0 20px}
+  .hero{padding:56px 20px 40px}
+  .section{padding:48px 20px}
+  .features-grid{grid-template-columns:1fr 1fr}
+  .hero-stats{gap:20px}
+  .cart-drawer{width:100%}
+  .footer-top{flex-direction:column;gap:28px}
+  footer{padding:40px 20px 24px}
+  .features{padding:32px 20px}
+}
+</style>
 </head>
 <body>
 
-<div class="card">
-    <h2>My Awesome Product</h2>
-    <div class="price">₹199</div>
+<!-- NAV -->
+<nav>
+  <a href="#" class="nav-logo">
+    <div class="nav-logo-mark">✿</div>
+    <div class="nav-logo-text">cute <span>store</span></div>
+  </a>
+  <div class="nav-links">
+    <a href="#shop">Shop</a>
+    <a href="#about">About</a>
+  </div>
+  <div class="nav-right">
+    <button class="nav-cart" onclick="toggleCart()" aria-label="Cart">
+      🛒
+      <div class="cart-count" id="cart-count">0</div>
+    </button>
+  </div>
+</nav>
 
-    <div id="payment-form">
-        <div class="form-group">
-            <label>Full Name</label>
-            <input type="text" id="name" placeholder="John Doe" required>
-        </div>
-        <div class="form-group">
-            <label>Email Address</label>
-            <input type="email" id="email" placeholder="john@example.com" required>
-        </div>
-        <div class="form-group">
-            <label>Phone Number</label>
-            <input type="tel" id="phone" placeholder="9999999999" required>
-        </div>
-        <button id="pay-btn">Pay Now</button>
-    </div>
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-dots" id="hero-dots"></div>
+  <div class="hero-eyebrow"><span>✿</span> Welcome to our little corner</div>
+  <h1 class="hero-title">Things that make<br>you go <em>"aww"</em></h1>
+  <p class="hero-sub">Handpicked products that bring a little joy to your everyday life. Cute, quality, and shipped with love.</p>
+  <div class="hero-actions">
+    <button class="btn-shop" onclick="document.getElementById('shop').scrollIntoView({behavior:'smooth'})">Shop Now ✿</button>
+    <button class="btn-ghost-sm">Our Story</button>
+  </div>
+  <div class="hero-stats">
+    <div class="hero-stat"><div class="hero-stat-num" id="stat-products">—</div><div class="hero-stat-lbl">Products</div></div>
+    <div class="hero-stat"><div class="hero-stat-num">★ 4.9</div><div class="hero-stat-lbl">Rating</div></div>
+    <div class="hero-stat"><div class="hero-stat-num">Free</div><div class="hero-stat-lbl">Returns</div></div>
+  </div>
+</section>
 
-    <div id="status"></div>
-    <a href="#" class="history-link" onclick="checkHistory()">View My Purchases</a>
+<!-- TICKER -->
+<div class="ticker">
+  <div class="ticker-inner" id="ticker"></div>
 </div>
 
+<!-- FEATURES -->
+<div class="features">
+  <div class="features-grid">
+    <div class="feat"><div class="feat-icon">🚚</div><div class="feat-title">Fast Delivery</div><div class="feat-desc">Quick shipping across India</div></div>
+    <div class="feat"><div class="feat-icon">💝</div><div class="feat-title">Gift Wrapping</div><div class="feat-desc">Every order wrapped with care</div></div>
+    <div class="feat"><div class="feat-icon">🔄</div><div class="feat-title">Easy Returns</div><div class="feat-desc">Hassle-free 30-day returns</div></div>
+    <div class="feat"><div class="feat-icon">🔒</div><div class="feat-title">Secure Pay</div><div class="feat-desc">Powered by Razorpay</div></div>
+  </div>
+</div>
+
+<!-- SHOP -->
+<section class="section" id="shop">
+  <div class="section-head">
+    <div>
+      <div class="section-label">Our Collection</div>
+      <h2 class="section-title">Shop <em>Everything</em></h2>
+    </div>
+  </div>
+  <div class="product-grid" id="product-grid">
+    <!-- loading skeletons -->
+    <div class="loading-grid" id="loading-skeletons">
+      ${[1,2,3,4].map(()=>`<div class="skel-card"><div class="skeleton skel-img"></div><div class="skel-body"><div class="skeleton skel-line"></div><div class="skeleton skel-line short"></div></div></div>`).join('')}
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES 2 -->
+<section class="section" id="about" style="background:var(--rose);border-top:1px solid var(--rose2)">
+  <div style="max-width:600px;margin:0 auto;text-align:center">
+    <div class="section-label" style="text-align:center;margin-bottom:12px">Our Story</div>
+    <h2 class="section-title" style="margin-bottom:16px">Made with <em>love</em></h2>
+    <p style="color:var(--mid);line-height:1.8;font-size:.95rem">Cute Store was born from a simple idea — life is better with beautiful things around you. We curate every product with care, making sure it brings a smile to your face the moment it arrives at your door.</p>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-top">
+    <div class="footer-brand">
+      <div class="logo-text">cute <span>store</span> ✿</div>
+      <p>Bringing little joys, one order at a time. Made with love in India.</p>
+    </div>
+    <div class="footer-links">
+      <h4>Shop</h4>
+      <ul>
+        <li><a href="#shop">All Products</a></li>
+        <li><a href="#">New Arrivals</a></li>
+        <li><a href="#">Best Sellers</a></li>
+      </ul>
+    </div>
+    <div class="footer-links">
+      <h4>Help</h4>
+      <ul>
+        <li><a href="#">FAQ</a></li>
+        <li><a href="#">Shipping</a></li>
+        <li><a href="#">Returns</a></li>
+        <li><a href="#">Contact</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <p>© 2025 Cute Store · All rights reserved</p>
+    <div class="footer-hearts">Made with <span>♥</span> in India</div>
+  </div>
+</footer>
+
+<!-- CART DRAWER -->
+<div class="cart-overlay" id="cart-overlay" onclick="toggleCart()"></div>
+<div class="cart-drawer" id="cart-drawer">
+  <div class="cart-header">
+    <h2>Your Cart 🛒</h2>
+    <button class="cart-close" onclick="toggleCart()">✕</button>
+  </div>
+  <div class="cart-items" id="cart-items"></div>
+  <div class="cart-footer" id="cart-footer" style="display:none">
+    <div class="cart-total-row">
+      <span class="cart-total-lbl">Total</span>
+      <span class="cart-total-val" id="cart-total">₹0</span>
+    </div>
+    <button class="btn-checkout" onclick="openCheckout()">Checkout →</button>
+    <div class="secure-note">🔒 Secure checkout via Razorpay</div>
+  </div>
+</div>
+
+<!-- CHECKOUT MODAL -->
+<div class="modal-overlay" id="checkout-modal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeCheckout()">✕</button>
+    <div class="modal-title">Checkout ✿</div>
+    <div class="modal-sub">Almost there! Fill in your details.</div>
+    <div class="fg"><label>Full Name</label><input id="buyer-name" placeholder="Your name"/></div>
+    <div class="fg"><label>Email</label><input id="buyer-email" type="email" placeholder="you@example.com"/></div>
+    <div class="fg"><label>Phone</label><input id="buyer-phone" type="tel" placeholder="9876543210"/></div>
+    <div class="order-summary">
+      <div class="order-summary-title">Order Summary</div>
+      <div id="order-items-list"></div>
+      <div class="order-total-row"><span>Total</span><span id="order-total-val">₹0</span></div>
+    </div>
+    <button id="pay-btn" onclick="startPayment()">Pay Securely →</button>
+    <div class="modal-secure">🔒 Powered by Razorpay · 256-bit SSL</div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <script>
-    const API_BASE = "https://cutestorebc-production.up.railway.app";
+const API = 'https://cutestorebc-production.up.railway.app';
 
-    document.getElementById('pay-btn').onclick = async function(e) {
-        const name = document.getElementById('name').value;
-        const email = document.getElementById('email').value;
-        const phone = document.getElementById('phone').value;
-        const statusDiv = document.getElementById('status');
-        const btn = e.target;
+// ── Floating dots ────────────────────────────────────────────────────────────
+const dotsEl = document.getElementById('hero-dots');
+for(let i=0;i<8;i++){
+  const s=document.createElement('span');
+  const sz=Math.random()*80+20;
+  s.style.cssText=`width:${sz}px;height:${sz}px;top:${Math.random()*100}%;left:${Math.random()*100}%;`;
+  dotsEl.appendChild(s);
+}
 
-        if (!name || !email || !phone) {
-            alert("Please fill in all details");
-            return;
-        }
+// ── Ticker ────────────────────────────────────────────────────────────────────
+const tickItems=['Free Shipping On Orders Over ₹999','New Arrivals Every Week','30-Day Easy Returns','Handpicked With Love','Gift Wrapping Available','Cute Store ✿'];
+const tk=document.getElementById('ticker');
+const full=[...tickItems,...tickItems].map(t=>`<span>${t}</span><span class="dot"> · </span>`).join('');
+tk.innerHTML=full;
 
-        btn.disabled = true;
-        statusDiv.innerText = "Creating order...";
+// ── Cart State ─────────────────────────────────────────────────────────────────
+let cart=JSON.parse(localStorage.getItem('cs_cart')||'[]');
+renderCart();
+updateCartCount();
 
-        try {
-            // 1. Create Order in Backend
-            const orderRes = await fetch(`${API_BASE}/create-order`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, email, phone })
-            });
-            
-            const orderData = await orderRes.json();
-
-            // 2. Open Razorpay Checkout
-            const options = {
-                "key": orderData.key_id,
-                "amount": orderData.amount,
-                "currency": orderData.currency,
-                "name": "My Awesome Product",
-                "description": "Purchase Description",
-                "order_id": orderData.order_id,
-                "handler": async function (response) {
-                    statusDiv.innerText = "Verifying payment...";
-                    
-                    // 3. Verify Payment in Backend
-                    const verifyRes = await fetch(`${API_BASE}/verify-payment`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            razorpay_order_id: response.razorpay_order_id,
-                            razorpay_payment_id: response.razorpay_payment_id,
-                            razorpay_signature: response.razorpay_signature
-                        })
-                    });
-
-                    const verifyData = await verifyRes.json();
-                    if (verifyData.success) {
-                        statusDiv.style.color = "green";
-                        statusDiv.innerText = "Payment Successful! Thank you.";
-                    } else {
-                        throw new Error("Verification failed");
-                    }
-                },
-                "prefill": {
-                    "name": name,
-                    "email": email,
-                    "contact": phone
-                },
-                "theme": { "color": "#3399cc" },
-                "modal": {
-                    "ondismiss": function() {
-                        btn.disabled = false;
-                        statusDiv.innerText = "Payment cancelled.";
-                    }
-                }
-            };
-
-            const rzp = new Razorpay(options);
-            rzp.open();
-
-        } catch (err) {
-            console.error(err);
-            statusDiv.style.color = "red";
-            statusDiv.innerText = "Error: " + err.message;
-            btn.disabled = false;
-        }
-    };
-
-    async function checkHistory() {
-        const email = prompt("Enter your email to see purchases:");
-        if (!email) return;
-
-        try {
-            const res = await fetch(`${API_BASE}/purchases?email=${email}`);
-            const data = await res.json();
-            if (data.purchases.length === 0) {
-                alert("No purchases found for this email.");
-            } else {
-                const list = data.purchases.map(p => `• ${p.status.toUpperCase()}: ₹${p.amount/100}`).join('\n');
-                alert(`Your Purchases:\n${list}`);
-            }
-        } catch (err) {
-            alert("Failed to fetch history.");
-        }
+// ── Fetch Products ────────────────────────────────────────────────────────────
+async function loadProducts(){
+  try{
+    const res = await fetch(`${API}/products`);
+    const {products=[]} = await res.json();
+    document.getElementById('loading-skeletons').remove();
+    const grid = document.getElementById('product-grid');
+    document.getElementById('stat-products').textContent = products.length || '0';
+    if(!products.length){
+      grid.innerHTML=`<div class="empty-store">
+        <span class="big-icon">✿</span>
+        <h3>Coming soon!</h3>
+        <p>Our collection is being lovingly curated. Check back soon!</p>
+      </div>`;
+      return;
     }
-</script>
+    grid.innerHTML = products.map(p=>productCard(p)).join('');
+  }catch(e){
+    document.getElementById('loading-skeletons').remove();
+    document.getElementById('product-grid').innerHTML=`<div class="empty-store"><span class="big-icon">😢</span><h3>Couldn't load products</h3><p>Please refresh the page.</p></div>`;
+  }
+}
+loadProducts();
 
+function productCard(p){
+  const price = '₹'+(p.price/100).toLocaleString('en-IN');
+  const img = p.image_url
+    ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=card-img-placeholder><span>✿</span><p>No image</p></div>'">`
+    : `<div class="card-img-placeholder"><span>✿</span><p>No image</p></div>`;
+  return `<div class="product-card" onclick="addToCart(${JSON.stringify(p).replace(/"/g,'&quot;')})">
+    <div class="card-img-wrap">
+      ${img}
+      <button class="card-quick-buy" onclick="event.stopPropagation();addToCart(${JSON.stringify(p).replace(/"/g,'&quot;')})">+ Add to Cart</button>
+    </div>
+    <div class="card-body">
+      <div class="card-name">${esc(p.name)}</div>
+      <div class="card-desc">${esc(p.description||'')}</div>
+      <div class="card-footer">
+        <div class="card-price">${price} <span>INR</span></div>
+        <button class="card-add" onclick="event.stopPropagation();addToCart(${JSON.stringify(p).replace(/"/g,'&quot;')})">+</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Cart Logic ─────────────────────────────────────────────────────────────────
+function addToCart(product){
+  const existing = cart.find(i=>i.id===product.id);
+  if(existing) existing.qty++;
+  else cart.push({...product,qty:1});
+  saveCart(); renderCart(); updateCartCount();
+  toast(`${product.name} added to cart ✿`);
+  openCartDrawer();
+}
+
+function removeFromCart(id){ cart=cart.filter(i=>i.id!==id); saveCart(); renderCart(); updateCartCount(); }
+function changeQty(id,delta){
+  const item=cart.find(i=>i.id===id);
+  if(!item) return;
+  item.qty+=delta;
+  if(item.qty<=0) removeFromCart(id);
+  else{ saveCart(); renderCart(); updateCartCount(); }
+}
+function saveCart(){ localStorage.setItem('cs_cart',JSON.stringify(cart)); }
+function cartTotal(){ return cart.reduce((s,i)=>s+i.price*i.qty,0); }
+function updateCartCount(){
+  const total=cart.reduce((s,i)=>s+i.qty,0);
+  const el=document.getElementById('cart-count');
+  el.textContent=total;
+  el.classList.toggle('show',total>0);
+}
+
+function renderCart(){
+  const el=document.getElementById('cart-items');
+  const footer=document.getElementById('cart-footer');
+  if(!cart.length){
+    el.innerHTML=`<div class="cart-empty"><span>🛒</span><p>Your cart is empty</p></div>`;
+    footer.style.display='none'; return;
+  }
+  footer.style.display='block';
+  document.getElementById('cart-total').textContent='₹'+(cartTotal()/100).toLocaleString('en-IN');
+  el.innerHTML=cart.map(item=>{
+    const imgHtml=item.image_url
+      ?`<img src="${esc(item.image_url)}" alt="${esc(item.name)}" style="width:100%;height:100%;object-fit:cover;border-radius:8px">`
+      :`✿`;
+    return `<div class="cart-item">
+      <div class="cart-item-img">${imgHtml}</div>
+      <div class="cart-item-info">
+        <div class="cart-item-name">${esc(item.name)}</div>
+        <div class="cart-item-price">₹${(item.price/100).toLocaleString('en-IN')} each</div>
+        <div class="cart-item-qty">
+          <button class="qty-btn" onclick="changeQty('${item.id}',-1)">−</button>
+          <span class="qty-num">${item.qty}</span>
+          <button class="qty-btn" onclick="changeQty('${item.id}',1)">+</button>
+        </div>
+      </div>
+      <button class="cart-item-remove" onclick="removeFromCart('${item.id}')">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function toggleCart(){
+  document.getElementById('cart-overlay').classList.toggle('open');
+  document.getElementById('cart-drawer').classList.toggle('open');
+}
+function openCartDrawer(){
+  document.getElementById('cart-overlay').classList.add('open');
+  document.getElementById('cart-drawer').classList.add('open');
+}
+
+// ── Checkout ──────────────────────────────────────────────────────────────────
+function openCheckout(){
+  if(!cart.length) return;
+  // populate order summary
+  const list=document.getElementById('order-items-list');
+  list.innerHTML=cart.map(i=>`<div class="order-item-row"><span>${esc(i.name)} × ${i.qty}</span><span>₹${(i.price*i.qty/100).toLocaleString('en-IN')}</span></div>`).join('');
+  document.getElementById('order-total-val').textContent='₹'+(cartTotal()/100).toLocaleString('en-IN');
+  document.getElementById('checkout-modal').classList.add('open');
+}
+function closeCheckout(){ document.getElementById('checkout-modal').classList.remove('open'); }
+document.getElementById('checkout-modal').addEventListener('click',e=>{ if(e.target===e.currentTarget) closeCheckout(); });
+
+async function startPayment(){
+  const name =document.getElementById('buyer-name').value.trim();
+  const email=document.getElementById('buyer-email').value.trim();
+  const phone=document.getElementById('buyer-phone').value.trim();
+  if(!name||!email||!phone){ toast('Fill in all fields'); return; }
+  if(!/\S+@\S+\.\S+/.test(email)){ toast('Invalid email'); return; }
+  const btn=document.getElementById('pay-btn');
+  btn.disabled=true; btn.textContent='Creating order…';
+  try{
+    // Use first item's product_id and total amount
+    const totalAmount=cartTotal();
+    const res=await fetch(`${API}/create-order`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,email,phone,
+        // pass cart summary in notes via product_id of first item
+        product_id: cart[0]?.id||null
+      })
+    });
+    // Override with actual cart total by using a custom amount endpoint
+    // For now we post total amount directly
+    if(!res.ok) throw new Error('Could not create order');
+    const order=await res.json();
+    // Override amount with actual cart total
+    const rzp=new Razorpay({
+      key:order.key_id, amount:totalAmount, currency:'INR',
+      order_id:order.order_id, name:'Cute Store ✿',
+      description:`${cart.length} item${cart.length>1?'s':''}`,
+      prefill:{name,email,contact:phone},
+      theme:{color:'#e91e8c'},
+      handler:async function(r){
+        try{
+          const vr=await fetch(`${API}/verify-payment`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({razorpay_order_id:r.razorpay_order_id,razorpay_payment_id:r.razorpay_payment_id,razorpay_signature:r.razorpay_signature})});
+          if(!vr.ok) throw new Error();
+          closeCheckout(); toggleCart();
+          cart=[]; saveCart(); renderCart(); updateCartCount();
+          showSuccess(name);
+        }catch(e){ toast('Payment verification failed — contact support'); }
+      },
+      modal:{ondismiss:()=>{ btn.disabled=false; btn.textContent='Pay Securely →'; }}
+    });
+    rzp.open();
+  }catch(e){ toast(e.message||'Error creating order'); }
+  btn.disabled=false; btn.textContent='Pay Securely →';
+}
+
+function showSuccess(name){
+  const div=document.createElement('div');
+  div.className='success-screen show';
+  div.innerHTML=`
+    <div style="font-size:5rem;margin-bottom:20px;animation:float 2s ease-in-out infinite">✿</div>
+    <h2 style="font-family:var(--serif);font-size:2.5rem;font-weight:900;margin-bottom:8px">Thank you, ${esc(name.split(' ')[0])}!</h2>
+    <p style="color:var(--mid);font-size:1rem;max-width:360px;line-height:1.7;margin-bottom:28px">Your order is confirmed! Check your email for the details. We're packing your goodies with love. 💝</p>
+    <button onclick="this.parentElement.remove()" style="background:var(--accent);color:#fff;border:none;border-radius:40px;padding:14px 32px;font-family:var(--ff);font-size:.9rem;font-weight:600;cursor:pointer">Continue Shopping ✿</button>`;
+  document.body.appendChild(div);
+}
+
+let toastT;
+function toast(msg){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  clearTimeout(toastT);
+  toastT=setTimeout(()=>el.classList.remove('show'),2800);
+}
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+</script>
 </body>
 </html>
