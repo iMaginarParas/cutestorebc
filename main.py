@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from supabase import create_client, Client
 from dotenv import load_dotenv
+from admin import router as admin_router
 
 load_dotenv()
 
@@ -17,7 +18,7 @@ RAZORPAY_KEY_SECRET = os.environ["RAZORPAY_KEY_SECRET"]
 SUPABASE_URL        = os.environ["SUPABASE_URL"]
 SUPABASE_KEY        = os.environ["SUPABASE_KEY"]
 
-PRODUCT_PRICE_PAISE = 19900   # ₹199 → paise
+PRODUCT_PRICE_PAISE = 19900
 PRODUCT_NAME        = "My Awesome Product"
 RAZORPAY_API        = "https://api.razorpay.com/v1"
 
@@ -26,7 +27,6 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 
 async def razorpay_create_order(amount: int, currency: str, receipt: str, notes: dict) -> dict:
-    """Create a Razorpay order directly via REST — no SDK required."""
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{RAZORPAY_API}/orders",
@@ -48,12 +48,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(admin_router)
+
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 class CreateOrderRequest(BaseModel):
     name: str
     email: EmailStr
     phone: str
+    product_id: str | None = None   # optional: link to a specific product
 
 
 class VerifyPaymentRequest(BaseModel):
@@ -69,17 +72,29 @@ def health():
     return {"status": "ok", "product": PRODUCT_NAME, "price": "₹199"}
 
 
+@app.get("/products")
+def public_products():
+    """Public: list only active products."""
+    result = supabase.table("products").select("id,name,description,price").eq("active", True).execute()
+    return {"products": result.data}
+
+
 @app.post("/create-order")
 async def create_order(body: CreateOrderRequest):
+    # Resolve price from product if product_id provided, else use default
+    amount = PRODUCT_PRICE_PAISE
+    product_name = PRODUCT_NAME
+    if body.product_id:
+        res = supabase.table("products").select("name,price").eq("id", body.product_id).eq("active", True).single().execute()
+        if res.data:
+            amount = res.data["price"]
+            product_name = res.data["name"]
+
     rp_order = await razorpay_create_order(
-        amount=PRODUCT_PRICE_PAISE,
+        amount=amount,
         currency="INR",
         receipt=f"receipt_{body.email}",
-        notes={
-            "customer_name":  body.name,
-            "customer_email": body.email,
-            "customer_phone": body.phone,
-        },
+        notes={"customer_name": body.name, "customer_email": body.email, "customer_phone": body.phone},
     )
 
     supabase.table("purchases").insert({
@@ -87,33 +102,21 @@ async def create_order(body: CreateOrderRequest):
         "customer_name":     body.name,
         "customer_email":    body.email,
         "customer_phone":    body.phone,
-        "amount":            PRODUCT_PRICE_PAISE,
+        "amount":            amount,
         "currency":          "INR",
         "status":            "pending",
     }).execute()
 
-    return {
-        "order_id": rp_order["id"],
-        "amount":   PRODUCT_PRICE_PAISE,
-        "currency": "INR",
-        "key_id":   RAZORPAY_KEY_ID,
-        "product":  PRODUCT_NAME,
-    }
+    return {"order_id": rp_order["id"], "amount": amount, "currency": "INR", "key_id": RAZORPAY_KEY_ID, "product": product_name}
 
 
 @app.post("/verify-payment")
 def verify_payment(body: VerifyPaymentRequest):
     payload  = f"{body.razorpay_order_id}|{body.razorpay_payment_id}"
-    expected = hmac.new(
-        RAZORPAY_KEY_SECRET.encode(),
-        payload.encode(),
-        hashlib.sha256,
-    ).hexdigest()
+    expected = hmac.new(RAZORPAY_KEY_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
     if not hmac.compare_digest(expected, body.razorpay_signature):
-        supabase.table("purchases").update({"status": "failed"}).eq(
-            "razorpay_order_id", body.razorpay_order_id
-        ).execute()
+        supabase.table("purchases").update({"status": "failed"}).eq("razorpay_order_id", body.razorpay_order_id).execute()
         raise HTTPException(status_code=400, detail="Payment verification failed")
 
     supabase.table("purchases").update({
@@ -121,20 +124,17 @@ def verify_payment(body: VerifyPaymentRequest):
         "razorpay_payment_id": body.razorpay_payment_id,
         "razorpay_signature":  body.razorpay_signature,
     }).eq("razorpay_order_id", body.razorpay_order_id).execute()
-
     return {"success": True, "message": "Payment verified successfully"}
 
 
 @app.post("/webhook")
 async def razorpay_webhook(request: Request):
     webhook_secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
-    body_bytes     = await request.body()
-    signature      = request.headers.get("x-razorpay-signature", "")
+    body_bytes = await request.body()
+    signature  = request.headers.get("x-razorpay-signature", "")
 
     if webhook_secret:
-        expected = hmac.new(
-            webhook_secret.encode(), body_bytes, hashlib.sha256
-        ).hexdigest()
+        expected = hmac.new(webhook_secret.encode(), body_bytes, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, signature):
             raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
@@ -142,30 +142,12 @@ async def razorpay_webhook(request: Request):
     event   = payload.get("event", "")
 
     if event == "payment.captured":
-        payment    = payload["payload"]["payment"]["entity"]
-        order_id   = payment.get("order_id")
-        payment_id = payment.get("id")
-        if order_id:
-            supabase.table("purchases").update({
-                "status":              "paid",
-                "razorpay_payment_id": payment_id,
-            }).eq("razorpay_order_id", order_id).execute()
-
+        p = payload["payload"]["payment"]["entity"]
+        if p.get("order_id"):
+            supabase.table("purchases").update({"status": "paid", "razorpay_payment_id": p["id"]}).eq("razorpay_order_id", p["order_id"]).execute()
     elif event == "payment.failed":
-        payment  = payload["payload"]["payment"]["entity"]
-        order_id = payment.get("order_id")
-        if order_id:
-            supabase.table("purchases").update({"status": "failed"}).eq(
-                "razorpay_order_id", order_id
-            ).execute()
+        p = payload["payload"]["payment"]["entity"]
+        if p.get("order_id"):
+            supabase.table("purchases").update({"status": "failed"}).eq("razorpay_order_id", p["order_id"]).execute()
 
     return {"status": "ok"}
-
-
-@app.get("/purchases")
-def get_purchases(email: str | None = None):
-    query = supabase.table("purchases").select("*").order("created_at", desc=True)
-    if email:
-        query = query.eq("customer_email", email)
-    result = query.execute()
-    return {"purchases": result.data}

@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Awesome Product | Buy Now</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <style>
+        :root {
+            --primary: #3399cc;
+            --dark: #1a1a1a;
+            --light: #f4f4f9;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--light);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+        h2 { margin-top: 0; color: var(--dark); }
+        .price { font-size: 1.5rem; color: var(--primary); font-weight: bold; margin-bottom: 1.5rem; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; margin-bottom: 0.5rem; font-size: 0.9rem; color: #666; }
+        input {
+            width: 100%;
+            padding: 0.8rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            box-sizing: border-box;
+        }
+        button {
+            width: 100%;
+            padding: 1rem;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover { background-color: #287da7; }
+        button:disabled { background-color: #ccc; }
+        #status { margin-top: 1rem; font-size: 0.85rem; text-align: center; }
+        .history-link {
+            display: block;
+            text-align: center;
+            margin-top: 1.5rem;
+            font-size: 0.8rem;
+            color: #888;
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>My Awesome Product</h2>
+    <div class="price">₹199</div>
+
+    <div id="payment-form">
+        <div class="form-group">
+            <label>Full Name</label>
+            <input type="text" id="name" placeholder="John Doe" required>
+        </div>
+        <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" id="email" placeholder="john@example.com" required>
+        </div>
+        <div class="form-group">
+            <label>Phone Number</label>
+            <input type="tel" id="phone" placeholder="9999999999" required>
+        </div>
+        <button id="pay-btn">Pay Now</button>
+    </div>
+
+    <div id="status"></div>
+    <a href="#" class="history-link" onclick="checkHistory()">View My Purchases</a>
+</div>
+
+<script>
+    const API_BASE = "https://cutestorebc-production.up.railway.app";
+
+    document.getElementById('pay-btn').onclick = async function(e) {
+        const name = document.getElementById('name').value;
+        const email = document.getElementById('email').value;
+        const phone = document.getElementById('phone').value;
+        const statusDiv = document.getElementById('status');
+        const btn = e.target;
+
+        if (!name || !email || !phone) {
+            alert("Please fill in all details");
+            return;
+        }
+
+        btn.disabled = true;
+        statusDiv.innerText = "Creating order...";
+
+        try {
+            // 1. Create Order in Backend
+            const orderRes = await fetch(`${API_BASE}/create-order`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, email, phone })
+            });
+            
+            const orderData = await orderRes.json();
+
+            // 2. Open Razorpay Checkout
+            const options = {
+                "key": orderData.key_id,
+                "amount": orderData.amount,
+                "currency": orderData.currency,
+                "name": "My Awesome Product",
+                "description": "Purchase Description",
+                "order_id": orderData.order_id,
+                "handler": async function (response) {
+                    statusDiv.innerText = "Verifying payment...";
+                    
+                    // 3. Verify Payment in Backend
+                    const verifyRes = await fetch(`${API_BASE}/verify-payment`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            razorpay_order_id: response.razorpay_order_id,
+                            razorpay_payment_id: response.razorpay_payment_id,
+                            razorpay_signature: response.razorpay_signature
+                        })
+                    });
+
+                    const verifyData = await verifyRes.json();
+                    if (verifyData.success) {
+                        statusDiv.style.color = "green";
+                        statusDiv.innerText = "Payment Successful! Thank you.";
+                    } else {
+                        throw new Error("Verification failed");
+                    }
+                },
+                "prefill": {
+                    "name": name,
+                    "email": email,
+                    "contact": phone
+                },
+                "theme": { "color": "#3399cc" },
+                "modal": {
+                    "ondismiss": function() {
+                        btn.disabled = false;
+                        statusDiv.innerText = "Payment cancelled.";
+                    }
+                }
+            };
+
+            const rzp = new Razorpay(options);
+            rzp.open();
+
+        } catch (err) {
+            console.error(err);
+            statusDiv.style.color = "red";
+            statusDiv.innerText = "Error: " + err.message;
+            btn.disabled = false;
+        }
+    };
+
+    async function checkHistory() {
+        const email = prompt("Enter your email to see purchases:");
+        if (!email) return;
+
+        try {
+            const res = await fetch(`${API_BASE}/purchases?email=${email}`);
+            const data = await res.json();
+            if (data.purchases.length === 0) {
+                alert("No purchases found for this email.");
+            } else {
+                const list = data.purchases.map(p => `• ${p.status.toUpperCase()}: ₹${p.amount/100}`).join('\n');
+                alert(`Your Purchases:\n${list}`);
+            }
+        } catch (err) {
+            alert("Failed to fetch history.");
+        }
+    }
+</script>
+
+</body>
+</html>
