@@ -35,7 +35,14 @@ async def razorpay_create_order(amount: int, currency: str, receipt: str, notes:
             auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET),
             json={"amount": amount, "currency": currency, "receipt": receipt, "notes": notes},
         )
-    resp.raise_for_status()
+    if not resp.is_success:
+        # Surface the actual Razorpay error message back to the client
+        try:
+            err = resp.json()
+            msg = err.get("error", {}).get("description") or err.get("message") or resp.text
+        except Exception:
+            msg = resp.text
+        raise HTTPException(status_code=502, detail=f"Razorpay error: {msg}")
     return resp.json()
 
 def verify_admin(x_admin_token: str = Header(...)):
@@ -155,7 +162,7 @@ async def create_order(body: CreateOrderRequest):
     rp_order = await razorpay_create_order(
         amount=body.amount,
         currency="INR",
-        receipt=f"receipt_{body.email[:20]}",
+        receipt=f"rcpt_{uuid.uuid4().hex[:16]}",
         notes={"customer_name": body.name, "customer_email": body.email, "customer_phone": body.phone},
     )
     supabase.table("purchases").insert({
