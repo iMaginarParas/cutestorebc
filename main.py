@@ -1,7 +1,7 @@
 import os
 import hmac
 import hashlib
-import razorpay
+import httpx
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,19 +19,30 @@ SUPABASE_KEY        = os.environ["SUPABASE_KEY"]
 
 PRODUCT_PRICE_PAISE = 19900   # ₹199 → paise
 PRODUCT_NAME        = "My Awesome Product"
+RAZORPAY_API        = "https://api.razorpay.com/v1"
 
 # ── Clients ───────────────────────────────────────────────────────────────────
-razorpay_client: razorpay.Client = razorpay.Client(
-    auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
-)
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+
+async def razorpay_create_order(amount: int, currency: str, receipt: str, notes: dict) -> dict:
+    """Create a Razorpay order directly via REST — no SDK required."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{RAZORPAY_API}/orders",
+            auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET),
+            json={"amount": amount, "currency": currency, "receipt": receipt, "notes": notes},
+        )
+    resp.raise_for_status()
+    return resp.json()
+
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Product Payment API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # tighten in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -59,25 +70,18 @@ def health():
 
 
 @app.post("/create-order")
-def create_order(body: CreateOrderRequest):
-    """
-    1. Create a Razorpay order for ₹199
-    2. Save a pending purchase record in Supabase
-    3. Return order details to the frontend
-    """
-    # 1. Razorpay order
-    rp_order = razorpay_client.order.create({
-        "amount":   PRODUCT_PRICE_PAISE,
-        "currency": "INR",
-        "receipt":  f"receipt_{body.email}",
-        "notes": {
+async def create_order(body: CreateOrderRequest):
+    rp_order = await razorpay_create_order(
+        amount=PRODUCT_PRICE_PAISE,
+        currency="INR",
+        receipt=f"receipt_{body.email}",
+        notes={
             "customer_name":  body.name,
             "customer_email": body.email,
             "customer_phone": body.phone,
         },
-    })
+    )
 
-    # 2. Supabase — insert pending purchase
     supabase.table("purchases").insert({
         "razorpay_order_id": rp_order["id"],
         "customer_name":     body.name,
@@ -88,39 +92,30 @@ def create_order(body: CreateOrderRequest):
         "status":            "pending",
     }).execute()
 
-    # 3. Return to frontend
     return {
-        "order_id":   rp_order["id"],
-        "amount":     PRODUCT_PRICE_PAISE,
-        "currency":   "INR",
-        "key_id":     RAZORPAY_KEY_ID,
-        "product":    PRODUCT_NAME,
+        "order_id": rp_order["id"],
+        "amount":   PRODUCT_PRICE_PAISE,
+        "currency": "INR",
+        "key_id":   RAZORPAY_KEY_ID,
+        "product":  PRODUCT_NAME,
     }
 
 
 @app.post("/verify-payment")
 def verify_payment(body: VerifyPaymentRequest):
-    """
-    1. Verify Razorpay signature (HMAC-SHA256)
-    2. Mark purchase as 'paid' in Supabase
-    3. Return success / failure
-    """
-    # 1. Signature verification
-    payload   = f"{body.razorpay_order_id}|{body.razorpay_payment_id}"
-    expected  = hmac.new(
+    payload  = f"{body.razorpay_order_id}|{body.razorpay_payment_id}"
+    expected = hmac.new(
         RAZORPAY_KEY_SECRET.encode(),
         payload.encode(),
         hashlib.sha256,
     ).hexdigest()
 
     if not hmac.compare_digest(expected, body.razorpay_signature):
-        # Mark as failed in DB
         supabase.table("purchases").update({"status": "failed"}).eq(
             "razorpay_order_id", body.razorpay_order_id
         ).execute()
         raise HTTPException(status_code=400, detail="Payment verification failed")
 
-    # 2. Update DB → paid
     supabase.table("purchases").update({
         "status":              "paid",
         "razorpay_payment_id": body.razorpay_payment_id,
@@ -132,10 +127,6 @@ def verify_payment(body: VerifyPaymentRequest):
 
 @app.post("/webhook")
 async def razorpay_webhook(request: Request):
-    """
-    Optional: Razorpay webhook for server-side payment confirmation.
-    Set webhook secret in Razorpay dashboard and add RAZORPAY_WEBHOOK_SECRET env var.
-    """
     webhook_secret = os.environ.get("RAZORPAY_WEBHOOK_SECRET", "")
     body_bytes     = await request.body()
     signature      = request.headers.get("x-razorpay-signature", "")
@@ -173,7 +164,6 @@ async def razorpay_webhook(request: Request):
 
 @app.get("/purchases")
 def get_purchases(email: str | None = None):
-    """Admin: list all purchases (optionally filter by email)."""
     query = supabase.table("purchases").select("*").order("created_at", desc=True)
     if email:
         query = query.eq("customer_email", email)
