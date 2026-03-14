@@ -148,7 +148,7 @@ def health():
 def public_products():
     result = (
         supabase.table("products")
-        .select("id,name,description,price,image_url")
+        .select("id,name,description,price,image_url,images")
         .eq("active", True)
         .order("created_at", desc=True)
         .execute()

@@ -83,7 +83,16 @@ h1.hero-title em{font-style:italic;color:var(--accent)}
 .product-card:hover{transform:translateY(-6px);box-shadow:0 20px 48px rgba(233,30,140,.12)}
 .card-img-wrap{position:relative;aspect-ratio:1;overflow:hidden;background:var(--rose)}
 .card-img-wrap img{width:100%;height:100%;object-fit:cover;transition:transform .4s ease}
-.product-card:hover .card-img-wrap img{transform:scale(1.06)}
+.product-card:hover .card-img-wrap > img{transform:scale(1.06)}
+.carousel{position:relative;width:100%;height:100%}
+.carousel-track{display:flex;width:100%;height:100%;transition:transform .35s ease}
+.carousel-track img{width:100%;height:100%;object-fit:cover;flex-shrink:0}
+.carousel-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.85);border:none;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:.8rem;display:flex;align-items:center;justify-content:center;z-index:3;opacity:0;transition:opacity .2s;backdrop-filter:blur(4px)}
+.card-img-wrap:hover .carousel-btn{opacity:1}
+.carousel-btn.prev{left:8px}.carousel-btn.next{right:8px}
+.carousel-dots{position:absolute;bottom:8px;left:0;right:0;display:flex;justify-content:center;gap:4px;z-index:3}
+.cdot{width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.6);transition:background .2s;cursor:pointer}
+.cdot.active{background:#fff}
 .card-img-placeholder{width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--mute)}
 .card-img-placeholder span{font-size:2.5rem}
 .card-img-placeholder p{font-size:.72rem;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase}
@@ -414,23 +423,55 @@ loadProducts();
 
 function productCard(p){
   const price = '₹'+(p.price/100).toLocaleString('en-IN');
-  const img = p.image_url
-    ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=card-img-placeholder><span>✿</span><p>No image</p></div>'">`
-    : `<div class="card-img-placeholder"><span>✿</span><p>No image</p></div>`;
-  return `<div class="product-card" onclick="addToCart(${JSON.stringify(p).replace(/"/g,'&quot;')})">
+  const imgs = Array.isArray(p.images)&&p.images.length ? p.images : (p.image_url?[p.image_url]:[]);
+  const pd = JSON.stringify(p).replace(/"/g,'&quot;');
+  const uid = 'c'+Math.random().toString(36).slice(2,8);
+
+  let imgHtml;
+  if(imgs.length===0){
+    imgHtml=`<div class="card-img-placeholder"><span>✿</span><p>No image</p></div>`;
+  } else if(imgs.length===1){
+    imgHtml=`<img src="${esc(imgs[0])}" alt="${esc(p.name)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=card-img-placeholder><span>✿</span></div>'">`;
+  } else {
+    const tracks = imgs.map(u=>`<img src="${esc(u)}" loading="lazy" onerror="this.style.display='none'">`).join('');
+    const dots   = imgs.map((_,i)=>`<div class="cdot${i===0?' active':''}" onclick="event.stopPropagation();setSlide('${uid}',${i})"></div>`).join('');
+    imgHtml=`<div class="carousel" id="${uid}" data-idx="0">
+      <div class="carousel-track">${tracks}</div>
+      <button class="carousel-btn prev" onclick="event.stopPropagation();slide('${uid}',-1)">‹</button>
+      <button class="carousel-btn next" onclick="event.stopPropagation();slide('${uid}',1)">›</button>
+      <div class="carousel-dots">${dots}</div>
+    </div>`;
+  }
+
+  return `<div class="product-card" onclick="addToCart(${pd})">
     <div class="card-img-wrap">
-      ${img}
-      <button class="card-quick-buy" onclick="event.stopPropagation();addToCart(${JSON.stringify(p).replace(/"/g,'&quot;')})">+ Add to Cart</button>
+      ${imgHtml}
+      <button class="card-quick-buy" onclick="event.stopPropagation();addToCart(${pd})">+ Add to Cart</button>
     </div>
     <div class="card-body">
       <div class="card-name">${esc(p.name)}</div>
       <div class="card-desc">${esc(p.description||'')}</div>
       <div class="card-footer">
         <div class="card-price">${price} <span>INR</span></div>
-        <button class="card-add" onclick="event.stopPropagation();addToCart(${JSON.stringify(p).replace(/"/g,'&quot;')})">+</button>
+        <button class="card-add" onclick="event.stopPropagation();addToCart(${pd})">+</button>
       </div>
     </div>
   </div>`;
+}
+
+function slide(uid, dir){
+  const el=document.getElementById(uid); if(!el) return;
+  const imgs=el.querySelectorAll('.carousel-track img');
+  let idx=(parseInt(el.dataset.idx)||0)+dir;
+  if(idx<0) idx=imgs.length-1;
+  if(idx>=imgs.length) idx=0;
+  setSlide(uid,idx);
+}
+function setSlide(uid, idx){
+  const el=document.getElementById(uid); if(!el) return;
+  el.dataset.idx=idx;
+  el.querySelector('.carousel-track').style.transform=`translateX(-${idx*100}%)`;
+  el.querySelectorAll('.cdot').forEach((d,i)=>d.classList.toggle('active',i===idx));
 }
 
 // ── Cart Logic ─────────────────────────────────────────────────────────────────
@@ -519,36 +560,48 @@ async function startPayment(){
   const btn=document.getElementById('pay-btn');
   btn.disabled=true; btn.textContent='Creating order…';
   try{
-    // Use first item's product_id and total amount
-    const totalAmount=cartTotal();
-    const res=await fetch(`${API}/create-order`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name,email,phone,
-        // pass cart summary in notes via product_id of first item
-        product_id: cart[0]?.id||null
-      })
+    const totalAmount = cartTotal();  // already in paise
+    const items = cart.map(i=>({ id:i.id, name:i.name, qty:i.qty, price:i.price }));
+
+    const res = await fetch(`${API}/create-order`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ name, email, phone, amount: totalAmount, items })
     });
-    // Override with actual cart total by using a custom amount endpoint
-    // For now we post total amount directly
-    if(!res.ok) throw new Error('Could not create order');
-    const order=await res.json();
-    // Override amount with actual cart total
-    const rzp=new Razorpay({
-      key:order.key_id, amount:totalAmount, currency:'INR',
-      order_id:order.order_id, name:'Cute Store ✿',
-      description:`${cart.length} item${cart.length>1?'s':''}`,
-      prefill:{name,email,contact:phone},
-      theme:{color:'#e91e8c'},
-      handler:async function(r){
+
+    if(!res.ok){
+      const err = await res.json().catch(()=>({}));
+      throw new Error(err.detail || 'Could not create order');
+    }
+    const order = await res.json();
+
+    const rzp = new Razorpay({
+      key:         order.key_id,
+      amount:      order.amount,
+      currency:    order.currency,
+      order_id:    order.order_id,
+      name:        'Cute Store ✿',
+      description: `${cart.length} item${cart.length>1?'s':''}`,
+      prefill:     { name, email, contact: phone },
+      theme:       { color:'#e91e8c' },
+      handler: async function(r){
         try{
-          const vr=await fetch(`${API}/verify-payment`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({razorpay_order_id:r.razorpay_order_id,razorpay_payment_id:r.razorpay_payment_id,razorpay_signature:r.razorpay_signature})});
+          const vr = await fetch(`${API}/verify-payment`,{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({
+              razorpay_order_id:   r.razorpay_order_id,
+              razorpay_payment_id: r.razorpay_payment_id,
+              razorpay_signature:  r.razorpay_signature
+            })
+          });
           if(!vr.ok) throw new Error();
           closeCheckout(); toggleCart();
           cart=[]; saveCart(); renderCart(); updateCartCount();
           showSuccess(name);
         }catch(e){ toast('Payment verification failed — contact support'); }
       },
-      modal:{ondismiss:()=>{ btn.disabled=false; btn.textContent='Pay Securely →'; }}
+      modal:{ ondismiss:()=>{ btn.disabled=false; btn.textContent='Pay Securely →'; } }
     });
     rzp.open();
   }catch(e){ toast(e.message||'Error creating order'); }
