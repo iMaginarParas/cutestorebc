@@ -25,6 +25,9 @@ STORAGE_BUCKET      = "product"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# Valid upload folder names (kept explicit to prevent path traversal)
+VALID_FOLDERS = {"products", "categories", "banners", "logo"}
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,7 +54,7 @@ def verify_admin(x_admin_token: str = Header(...)):
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Cute Store API", version="2.0.0")
+app = FastAPI(title="Cute Store API", version="2.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -73,10 +76,36 @@ except Exception:
 # ── Image Upload ──────────────────────────────────────────────────────────────
 
 @app.post("/admin/upload-image", dependencies=[Depends(verify_admin)])
-async def upload_image(file: UploadFile = File(...)):
-    allowed = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"}
+async def upload_image(
+    file: UploadFile = File(...),
+    folder: str = Query(
+        default="products",
+        description="Storage sub-folder. One of: products, categories, banners, logo"
+    ),
+):
+    """
+    Upload any image to Supabase Storage and get back a public URL.
+
+    Use the `folder` query param to keep images organised:
+      - ?folder=products    (default) – product images
+      - ?folder=categories  – category thumbnail images
+      - ?folder=banners     – homepage banner images (banner_1/2/3)
+      - ?folder=logo        – store logo
+
+    After getting the URL, call the relevant endpoint to save it:
+      - PUT /admin/site-assets/logo
+      - PUT /admin/site-assets/banner_1  (or banner_2 / banner_3)
+      - PATCH /admin/categories/{id}     { "image_url": "<url>" }
+    """
+    if folder not in VALID_FOLDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid folder '{folder}'. Must be one of: {', '.join(sorted(VALID_FOLDERS))}"
+        )
+
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"}
     content_type = file.content_type or "application/octet-stream"
-    if content_type not in allowed:
+    if content_type not in allowed_types:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {content_type}")
 
     data = await file.read()
@@ -85,7 +114,7 @@ async def upload_image(file: UploadFile = File(...)):
 
     ext = mimetypes.guess_extension(content_type) or ".jpg"
     ext = ext.replace(".jpe", ".jpg")
-    filename = f"{uuid.uuid4().hex}{ext}"
+    filename = f"{folder}/{uuid.uuid4().hex}{ext}"   # e.g. banners/abc123.jpg
 
     upload_url = f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}/{filename}"
     async with httpx.AsyncClient() as client:
@@ -93,18 +122,21 @@ async def upload_image(file: UploadFile = File(...)):
             upload_url,
             content=data,
             headers={
-                "Authorization":  f"Bearer {SUPABASE_KEY}",
-                "Content-Type":   content_type,
-                "x-upsert":       "true",
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type":  content_type,
+                "x-upsert":      "true",
             },
         )
 
     if resp.status_code not in (200, 201):
         detail = resp.json() if resp.content else {}
-        raise HTTPException(status_code=500, detail=f"Storage upload failed: {detail.get('message','unknown error')}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Storage upload failed: {detail.get('message', 'unknown error')}"
+        )
 
     public_url = f"{SUPABASE_URL}/storage/v1/object/public/{STORAGE_BUCKET}/{filename}"
-    return {"url": public_url, "filename": filename}
+    return {"url": public_url, "filename": filename, "folder": folder}
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -124,16 +156,13 @@ class DeliveryAddress(BaseModel):
     country: str = "India"
 
 class CreateOrderRequest(BaseModel):
-    # Customer info
     name: str
     email: EmailStr
     phone: str
-    # Delivery address (required before checkout)
     delivery_address: DeliveryAddress
-    # Order
     amount: int         # total in paise
     items: List[CartItem] = []
-    notes: Optional[str] = None     # e.g. delivery instructions
+    notes: Optional[str] = None
 
 class VerifyPaymentRequest(BaseModel):
     razorpay_order_id: str
@@ -148,14 +177,49 @@ def health():
     return {"status": "ok", "store": "Cute Store ✿"}
 
 
+# ── Site Assets (public) ──────────────────────────────────────────────────────
+
+@app.get("/site-assets")
+def public_site_assets():
+    """
+    Returns all ACTIVE site assets for the storefront to consume.
+    Typically called once on app load to get logo + banners.
+
+    Response shape:
+    {
+      "logo":    { "url": "...", "alt": "Store Logo" },
+      "banners": [
+        { "key": "banner_1", "url": "...", "alt": "...", "link_url": "..." },
+        { "key": "banner_2", "url": "...", ... }
+      ]
+    }
+    """
+    result = supabase.table("site_assets").select("*").eq("active", True).execute()
+    logo    = None
+    banners = []
+    for row in result.data:
+        if row["key"] == "logo":
+            logo = {"url": row["url"], "alt": row.get("alt", "Store Logo")}
+        elif row["key"].startswith("banner_"):
+            banners.append({
+                "key":      row["key"],
+                "url":      row["url"],
+                "alt":      row.get("alt", ""),
+                "link_url": row.get("link_url"),
+            })
+    # Sort banners: banner_1, banner_2, banner_3
+    banners.sort(key=lambda b: b["key"])
+    return {"logo": logo, "banners": banners}
+
+
 # ── Categories (public) ───────────────────────────────────────────────────────
 
 @app.get("/categories")
 def public_categories():
-    """Return all active categories for storefront filtering."""
+    """Return all active categories including their thumbnail image."""
     result = (
         supabase.table("categories")
-        .select("id,name,description,slug")
+        .select("id,name,description,slug,image_url")
         .eq("active", True)
         .order("name")
         .execute()
@@ -167,9 +231,6 @@ def public_categories():
 
 @app.get("/products")
 def public_products(category: Optional[str] = Query(None, description="Filter by category slug")):
-    """
-    Returns active products.  Optionally filter by ?category=<slug>.
-    """
     query = (
         supabase.table("products")
         .select("id,name,description,price,image_url,images,category_id")
@@ -177,12 +238,10 @@ def public_products(category: Optional[str] = Query(None, description="Filter by
         .order("created_at", desc=True)
     )
     if category:
-        # Resolve slug → id first
         cat = supabase.table("categories").select("id").eq("slug", category).eq("active", True).execute()
         if not cat.data:
             return {"products": []}
         query = query.eq("category_id", cat.data[0]["id"])
-
     result = query.execute()
     return {"products": result.data}
 
@@ -194,11 +253,6 @@ def get_order_history(
     email: Optional[str] = Query(None),
     phone: Optional[str] = Query(None),
 ):
-    """
-    Fetch all orders for a customer identified by email OR phone.
-    Frontend should pass whichever identifier the user logged in with.
-    Returns orders sorted newest-first.
-    """
     if not email and not phone:
         raise HTTPException(status_code=400, detail="Provide email or phone query param")
 
@@ -207,7 +261,6 @@ def get_order_history(
         "amount,currency,status,items,delivery_address,customer_name,"
         "customer_email,customer_phone,notes"
     )
-
     if email:
         query = query.eq("customer_email", email)
     else:
@@ -216,16 +269,10 @@ def get_order_history(
     result = query.order("created_at", desc=True).execute()
     return {"orders": result.data}
 
-
 @app.get("/profile/orders/{order_id}")
 def get_order_detail(order_id: str):
-    """
-    Returns a single order's full detail (by internal UUID or razorpay_order_id).
-    """
-    # Try UUID first
     result = supabase.table("purchases").select("*").eq("id", order_id).execute()
     if not result.data:
-        # Fall back to razorpay_order_id
         result = supabase.table("purchases").select("*").eq("razorpay_order_id", order_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -236,15 +283,9 @@ def get_order_detail(order_id: str):
 
 @app.post("/create-order")
 async def create_order(body: CreateOrderRequest):
-    """
-    Step 1 of checkout.
-    Validates delivery details, creates a Razorpay order, and saves the
-    pending purchase (with delivery address) to Supabase.
-    """
     if body.amount <= 0:
         raise HTTPException(status_code=400, detail="Invalid order amount")
 
-    # Basic phone validation
     phone = body.phone.strip()
     if not phone.lstrip("+").isdigit() or len(phone.lstrip("+")) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
@@ -261,16 +302,16 @@ async def create_order(body: CreateOrderRequest):
     )
 
     supabase.table("purchases").insert({
-        "razorpay_order_id":  rp_order["id"],
-        "customer_name":      body.name,
-        "customer_email":     body.email,
-        "customer_phone":     body.phone,
-        "delivery_address":   body.delivery_address.model_dump(),
-        "amount":             body.amount,
-        "currency":           "INR",
-        "items":              [i.model_dump() for i in body.items],
-        "notes":              body.notes,
-        "status":             "pending",
+        "razorpay_order_id": rp_order["id"],
+        "customer_name":     body.name,
+        "customer_email":    body.email,
+        "customer_phone":    body.phone,
+        "delivery_address":  body.delivery_address.model_dump(),
+        "amount":            body.amount,
+        "currency":          "INR",
+        "items":             [i.model_dump() for i in body.items],
+        "notes":             body.notes,
+        "status":            "pending",
     }).execute()
 
     return {
@@ -285,11 +326,6 @@ async def create_order(body: CreateOrderRequest):
 
 @app.post("/verify-payment")
 def verify_payment(body: VerifyPaymentRequest):
-    """
-    Step 2 of checkout.
-    Verifies the Razorpay signature and marks the purchase as paid.
-    Returns full order detail so the frontend can show a confirmation page.
-    """
     payload  = f"{body.razorpay_order_id}|{body.razorpay_payment_id}"
     expected = hmac.new(RAZORPAY_KEY_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
@@ -300,17 +336,16 @@ def verify_payment(body: VerifyPaymentRequest):
         raise HTTPException(status_code=400, detail="Payment verification failed")
 
     result = supabase.table("purchases").update({
-        "status":               "paid",
-        "razorpay_payment_id":  body.razorpay_payment_id,
-        "razorpay_signature":   body.razorpay_signature,
+        "status":              "paid",
+        "razorpay_payment_id": body.razorpay_payment_id,
+        "razorpay_signature":  body.razorpay_signature,
     }).eq("razorpay_order_id", body.razorpay_order_id).select("*").execute()
 
     order = result.data[0] if result.data else {}
-
     return {
-        "success":          True,
-        "order":            order,          # full order for confirmation page
-        "payment_id":       body.razorpay_payment_id,
+        "success":           True,
+        "order":             order,
+        "payment_id":        body.razorpay_payment_id,
         "razorpay_order_id": body.razorpay_order_id,
     }
 
