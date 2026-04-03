@@ -26,7 +26,7 @@ STORAGE_BUCKET      = "product"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Valid upload folder names (kept explicit to prevent path traversal)
-VALID_FOLDERS = {"products", "categories", "banners", "logo", "reviews"}
+VALID_FOLDERS = {"products", "categories", "banners", "logo"}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -139,61 +139,33 @@ async def upload_image(
     return {"url": public_url, "filename": filename, "folder": folder}
 
 
+# ── Direct-to-Supabase video upload config ────────────────────────────────────
 
-# ── Video Upload ──────────────────────────────────────────────────────────────
-
-STORAGE_VIDEO_BUCKET = "product"   # reuse same bucket, videos go in reviews/ subfolder
-
-@app.post("/admin/upload-video", dependencies=[Depends(verify_admin)])
-async def upload_video(file: UploadFile = File(...)):
+@app.get("/admin/video-upload-config", dependencies=[Depends(verify_admin)])
+def video_upload_config():
     """
-    Upload a short vertical review video to Supabase Storage and return its public URL.
+    Returns Supabase credentials so the browser uploads videos DIRECTLY to
+    Supabase Storage — bypassing Railway's body-size and timeout limits.
 
-    Accepted formats : video/mp4, video/webm, video/quicktime (.mov)
-    Max size         : 50 MB
-    Stored under     : reviews/<uuid>.<ext>   in the 'product' bucket
-
-    Typical flow:
-      1. POST /admin/upload-video          → { url, filename }
-      2. POST /admin/review-videos         → { video_url: "<url>", reviewer_name: "…", … }
+    Browser flow:
+      1. GET  /admin/video-upload-config
+             → { supabase_url, supabase_key, bucket, folder }
+      2. Generate a filename: reviews/<uuid>.mp4
+      3. PUT  {supabase_url}/storage/v1/object/{bucket}/reviews/<uuid>.mp4
+             Headers: Authorization: Bearer <supabase_key>
+                      Content-Type: video/mp4   (or webm / quicktime)
+                      x-upsert: true
+             Body: raw video bytes (no FormData)
+      4. Build public URL:
+             {supabase_url}/storage/v1/object/public/{bucket}/reviews/<uuid>.mp4
+      5. POST /admin/review-videos  { video_url: "<public_url>", reviewer_name, … }
     """
-    allowed_video_types = {"video/mp4", "video/webm", "video/quicktime"}
-    content_type = file.content_type or "application/octet-stream"
-    if content_type not in allowed_video_types:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported video type: {content_type}. Allowed: mp4, webm, mov"
-        )
-
-    data = await file.read()
-    if len(data) > 50 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Video too large (max 50 MB)")
-
-    ext_map = {"video/mp4": ".mp4", "video/webm": ".webm", "video/quicktime": ".mov"}
-    ext = ext_map.get(content_type, ".mp4")
-    filename = f"reviews/{uuid.uuid4().hex}{ext}"   # e.g. reviews/abc123.mp4
-
-    upload_url = f"{SUPABASE_URL}/storage/v1/object/{STORAGE_VIDEO_BUCKET}/{filename}"
-    async with httpx.AsyncClient(timeout=120.0) as client:          # longer timeout for video
-        resp = await client.post(
-            upload_url,
-            content=data,
-            headers={
-                "Authorization": f"Bearer {SUPABASE_KEY}",
-                "Content-Type":  content_type,
-                "x-upsert":      "true",
-            },
-        )
-
-    if resp.status_code not in (200, 201):
-        detail = resp.json() if resp.content else {}
-        raise HTTPException(
-            status_code=500,
-            detail=f"Storage upload failed: {detail.get('message', 'unknown error')}"
-        )
-
-    public_url = f"{SUPABASE_URL}/storage/v1/object/public/{STORAGE_VIDEO_BUCKET}/{filename}"
-    return {"url": public_url, "filename": filename}
+    return {
+        "supabase_url": SUPABASE_URL,
+        "supabase_key": SUPABASE_KEY,
+        "bucket":       STORAGE_BUCKET,
+        "folder":       "reviews",
+    }
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -301,47 +273,6 @@ def public_products(category: Optional[str] = Query(None, description="Filter by
         query = query.eq("category_id", cat.data[0]["id"])
     result = query.execute()
     return {"products": result.data}
-
-
-
-# ── Review Videos (public) ────────────────────────────────────────────────────
-
-@app.get("/review-videos")
-def public_review_videos(product_id: Optional[str] = Query(None, description="Filter by product ID")):
-    """
-    Returns all ACTIVE review videos ordered by sort_order, for the storefront review section.
-
-    Optional ?product_id=<uuid> to show only videos linked to a specific product.
-
-    Response shape:
-    {
-      "review_videos": [
-        {
-          "id": "…",
-          "video_url": "…",
-          "thumbnail_url": "…",
-          "reviewer_name": "Priya S.",
-          "reviewer_handle": "@priya",
-          "caption": "Absolutely love it! 😍",
-          "product_id": "…",
-          "sort_order": 0
-        },
-        …
-      ]
-    }
-    """
-    query = (
-        supabase.table("review_videos")
-        .select("id,video_url,thumbnail_url,reviewer_name,reviewer_handle,caption,product_id,sort_order")
-        .eq("active", True)
-        .order("sort_order")
-        .order("created_at", desc=True)
-    )
-    if product_id:
-        query = query.eq("product_id", product_id)
-
-    result = query.execute()
-    return {"review_videos": result.data}
 
 
 # ── Customer Profile & Order History ─────────────────────────────────────────
