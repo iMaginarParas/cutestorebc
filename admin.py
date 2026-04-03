@@ -222,6 +222,120 @@ def delete_site_asset(key: str, supabase: Client = Depends(get_supabase)):
     return {"deleted": True, "key": key}
 
 
+# ── Review Video Schemas ───────────────────────────────────────────────────────
+
+class ReviewVideoCreate(BaseModel):
+    video_url: str                        # URL of the uploaded vertical video
+    thumbnail_url: Optional[str] = None  # Optional poster/thumbnail image URL
+    reviewer_name: str                    # Display name shown below the video
+    reviewer_handle: Optional[str] = None # e.g. "@username" (optional)
+    caption: Optional[str] = None        # Short review caption / quote
+    product_id: Optional[str] = None     # Link to a specific product (optional)
+    sort_order: int = 0                  # Lower = shown first
+    active: bool = True
+
+class ReviewVideoUpdate(BaseModel):
+    video_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    reviewer_name: Optional[str] = None
+    reviewer_handle: Optional[str] = None
+    caption: Optional[str] = None
+    product_id: Optional[str] = None
+    sort_order: Optional[int] = None
+    active: Optional[bool] = None
+
+
+# ── Review Video Routes ────────────────────────────────────────────────────────
+
+@router.get("/review-videos", dependencies=[Depends(verify_admin)])
+def list_review_videos(supabase: Client = Depends(get_supabase)):
+    """List all review videos (active and inactive), ordered by sort_order."""
+    result = (
+        supabase.table("review_videos")
+        .select("*")
+        .order("sort_order")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return {"review_videos": result.data}
+
+@router.post("/review-videos", dependencies=[Depends(verify_admin)], status_code=201)
+def create_review_video(body: ReviewVideoCreate, supabase: Client = Depends(get_supabase)):
+    """
+    Add a new review video.
+
+    Typical flow:
+      1. POST /admin/upload-video  → get back { url }           (for the video)
+      2. POST /admin/upload-image  → get back { url }           (for the thumbnail, optional)
+      3. POST /admin/review-videos { video_url, reviewer_name, … }
+    """
+    result = supabase.table("review_videos").insert({
+        "video_url":       body.video_url,
+        "thumbnail_url":   body.thumbnail_url,
+        "reviewer_name":   body.reviewer_name,
+        "reviewer_handle": body.reviewer_handle,
+        "caption":         body.caption,
+        "product_id":      body.product_id,
+        "sort_order":      body.sort_order,
+        "active":          body.active,
+    }).execute()
+    return {"review_video": result.data[0]}
+
+@router.patch("/review-videos/{video_id}", dependencies=[Depends(verify_admin)])
+def update_review_video(video_id: str, body: ReviewVideoUpdate, supabase: Client = Depends(get_supabase)):
+    """Update any field of a review video (partial update)."""
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    result = supabase.table("review_videos").update(updates).eq("id", video_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Review video not found")
+    return {"review_video": result.data[0]}
+
+@router.patch("/review-videos/{video_id}/toggle", dependencies=[Depends(verify_admin)])
+def toggle_review_video_active(video_id: str, supabase: Client = Depends(get_supabase)):
+    """Toggle a review video active/inactive without deleting it."""
+    row = supabase.table("review_videos").select("active").eq("id", video_id).execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="Review video not found")
+    result = (
+        supabase.table("review_videos")
+        .update({"active": not row.data[0]["active"]})
+        .eq("id", video_id)
+        .execute()
+    )
+    return {"review_video": result.data[0]}
+
+@router.delete("/review-videos/{video_id}", dependencies=[Depends(verify_admin)])
+def delete_review_video(video_id: str, supabase: Client = Depends(get_supabase)):
+    """Permanently delete a review video entry (does NOT delete the file from storage)."""
+    result = supabase.table("review_videos").delete().eq("id", video_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Review video not found")
+    return {"deleted": True, "id": video_id}
+
+@router.patch("/review-videos/reorder", dependencies=[Depends(verify_admin)])
+def reorder_review_videos(
+    order: List[dict],          # [{"id": "...", "sort_order": 0}, …]
+    supabase: Client = Depends(get_supabase),
+):
+    """
+    Bulk-update sort_order so the frontend can drag-and-drop reorder.
+
+    Body example:
+      [
+        { "id": "uuid-1", "sort_order": 0 },
+        { "id": "uuid-2", "sort_order": 1 },
+        { "id": "uuid-3", "sort_order": 2 }
+      ]
+    """
+    for item in order:
+        if "id" not in item or "sort_order" not in item:
+            raise HTTPException(status_code=400, detail="Each item must have 'id' and 'sort_order'")
+        supabase.table("review_videos").update({"sort_order": item["sort_order"]}).eq("id", item["id"]).execute()
+    return {"reordered": True, "count": len(order)}
+
+
 # ── Purchase / Order Routes ────────────────────────────────────────────────────
 
 @router.get("/purchases", dependencies=[Depends(verify_admin)])
