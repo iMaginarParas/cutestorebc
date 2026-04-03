@@ -274,6 +274,41 @@ def public_products(category: Optional[str] = Query(None, description="Filter by
     result = query.execute()
     return {"products": result.data}
 
+@app.get("/products/{product_id}")
+def public_product_by_id(product_id: str):
+    """Fetch a single active product by UUID — used by product.html"""
+    result = (
+        supabase.table("products")
+        .select("id,name,description,price,image_url,images,category_id")
+        .eq("id", product_id)
+        .eq("active", True)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return {"product": result.data[0]}
+
+
+# ── Review Videos (public) ────────────────────────────────────────────────────
+
+@app.get("/review-videos")
+def public_review_videos(product_id: Optional[str] = Query(None)):
+    """
+    Returns all ACTIVE review videos for the storefront.
+    Optional ?product_id=<uuid> to filter by product.
+    """
+    query = (
+        supabase.table("review_videos")
+        .select("id,video_url,thumbnail_url,reviewer_name,reviewer_handle,caption,product_id,sort_order")
+        .eq("active", True)
+        .order("sort_order")
+        .order("created_at", desc=True)
+    )
+    if product_id:
+        query = query.eq("product_id", product_id)
+    result = query.execute()
+    return {"review_videos": result.data}
+
 
 # ── Customer Profile & Order History ─────────────────────────────────────────
 
