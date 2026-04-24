@@ -23,10 +23,13 @@ ADMIN_SECRET        = os.environ.get("ADMIN_SECRET", "change-me")
 RAZORPAY_API        = "https://api.razorpay.com/v1"
 STORAGE_BUCKET      = "product"
 
+# Free shipping threshold in paise (₹199)
+FREE_SHIPPING_THRESHOLD = 19900
+
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Valid upload folder names (kept explicit to prevent path traversal)
-VALID_FOLDERS = {"products", "categories", "banners", "logo"}
+VALID_FOLDERS = {"products", "categories", "banners", "logo", "blog"}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -54,7 +57,7 @@ def verify_admin(x_admin_token: str = Header(...)):
 
 # ── App ───────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Cute Store API", version="2.1.0")
+app = FastAPI(title="Prottiva Store API", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -80,7 +83,7 @@ async def upload_image(
     file: UploadFile = File(...),
     folder: str = Query(
         default="products",
-        description="Storage sub-folder. One of: products, categories, banners, logo"
+        description="Storage sub-folder. One of: products, categories, banners, logo, blog"
     ),
 ):
     """
@@ -89,13 +92,11 @@ async def upload_image(
     Use the `folder` query param to keep images organised:
       - ?folder=products    (default) – product images
       - ?folder=categories  – category thumbnail images
-      - ?folder=banners     – homepage banner images (banner_1/2/3)
+      - ?folder=banners     – homepage banner images
       - ?folder=logo        – store logo
+      - ?folder=blog        – blog post cover images
 
-    After getting the URL, call the relevant endpoint to save it:
-      - PUT /admin/site-assets/logo
-      - PUT /admin/site-assets/banner_1  (or banner_2 / banner_3)
-      - PATCH /admin/categories/{id}     { "image_url": "<url>" }
+    After getting the URL, call the relevant endpoint to save it.
     """
     if folder not in VALID_FOLDERS:
         raise HTTPException(
@@ -114,7 +115,7 @@ async def upload_image(
 
     ext = mimetypes.guess_extension(content_type) or ".jpg"
     ext = ext.replace(".jpe", ".jpg")
-    filename = f"{folder}/{uuid.uuid4().hex}{ext}"   # e.g. banners/abc123.jpg
+    filename = f"{folder}/{uuid.uuid4().hex}{ext}"
 
     upload_url = f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}/{filename}"
     async with httpx.AsyncClient() as client:
@@ -146,19 +147,6 @@ def video_upload_config():
     """
     Returns Supabase credentials so the browser uploads videos DIRECTLY to
     Supabase Storage — bypassing Railway's body-size and timeout limits.
-
-    Browser flow:
-      1. GET  /admin/video-upload-config
-             → { supabase_url, supabase_key, bucket, folder }
-      2. Generate a filename: reviews/<uuid>.mp4
-      3. PUT  {supabase_url}/storage/v1/object/{bucket}/reviews/<uuid>.mp4
-             Headers: Authorization: Bearer <supabase_key>
-                      Content-Type: video/mp4   (or webm / quicktime)
-                      x-upsert: true
-             Body: raw video bytes (no FormData)
-      4. Build public URL:
-             {supabase_url}/storage/v1/object/public/{bucket}/reviews/<uuid>.mp4
-      5. POST /admin/review-videos  { video_url: "<public_url>", reviewer_name, … }
     """
     return {
         "supabase_url": SUPABASE_URL,
@@ -174,7 +162,9 @@ class CartItem(BaseModel):
     id: str
     name: str
     qty: int
-    price: int  # paise
+    price: int               # paise (already discounted if subscription)
+    is_subscription: bool = False
+    sub_frequency: Optional[str] = None   # "30" | "60" | "90" days
 
 class DeliveryAddress(BaseModel):
     line1: str
@@ -189,7 +179,7 @@ class CreateOrderRequest(BaseModel):
     email: EmailStr
     phone: str
     delivery_address: DeliveryAddress
-    amount: int         # total in paise
+    amount: int              # total in paise
     items: List[CartItem] = []
     notes: Optional[str] = None
 
@@ -198,31 +188,54 @@ class VerifyPaymentRequest(BaseModel):
     razorpay_payment_id: str
     razorpay_signature: str
 
+class NewsletterRequest(BaseModel):
+    email: EmailStr
+
+class SubscriptionRequest(BaseModel):
+    product_id: str
+    customer_name: str
+    customer_email: EmailStr
+    customer_phone: str
+    delivery_address: DeliveryAddress
+    frequency_days: int = 60      # 30 / 60 / 90
+    discount_pct: float = 15.0    # 15% off
+
+class BlogPostCreate(BaseModel):
+    slug: str
+    title: str
+    excerpt: Optional[str] = None
+    content: Optional[str] = None   # HTML string stored as text
+    category: Optional[str] = None  # nutrition | skincare | wellness | guides
+    cover_url: Optional[str] = None
+    author: Optional[str] = "Prottiva Team"
+    published_at: Optional[str] = None
+    read_time: Optional[int] = 5
+    active: bool = True
+
+class BlogPostUpdate(BaseModel):
+    title: Optional[str] = None
+    excerpt: Optional[str] = None
+    content: Optional[str] = None
+    category: Optional[str] = None
+    cover_url: Optional[str] = None
+    author: Optional[str] = None
+    published_at: Optional[str] = None
+    read_time: Optional[int] = None
+    active: Optional[bool] = None
+
 
 # ── Public Routes ─────────────────────────────────────────────────────────────
 
 @app.get("/")
 def health():
-    return {"status": "ok", "store": "Cute Store ✿"}
+    return {"status": "ok", "store": "Prottiva Nutrition", "version": "3.0.0"}
 
 
 # ── Site Assets (public) ──────────────────────────────────────────────────────
 
 @app.get("/site-assets")
 def public_site_assets():
-    """
-    Returns all ACTIVE site assets for the storefront to consume.
-    Typically called once on app load to get logo + banners.
-
-    Response shape:
-    {
-      "logo":    { "url": "...", "alt": "Store Logo" },
-      "banners": [
-        { "key": "banner_1", "url": "...", "alt": "...", "link_url": "..." },
-        { "key": "banner_2", "url": "...", ... }
-      ]
-    }
-    """
+    """Returns logo + active banners for the storefront."""
     result = supabase.table("site_assets").select("*").eq("active", True).execute()
     logo    = None
     banners = []
@@ -236,7 +249,6 @@ def public_site_assets():
                 "alt":      row.get("alt", ""),
                 "link_url": row.get("link_url"),
             })
-    # Sort banners: banner_1, banner_2, banner_3
     banners.sort(key=lambda b: b["key"])
     return {"logo": logo, "banners": banners}
 
@@ -262,7 +274,7 @@ def public_categories():
 def public_products(category: Optional[str] = Query(None, description="Filter by category slug")):
     query = (
         supabase.table("products")
-        .select("id,name,description,price,image_url,images,category_id")
+        .select("id,name,description,price,image_url,images,category_id,created_at")
         .eq("active", True)
         .order("created_at", desc=True)
     )
@@ -279,7 +291,7 @@ def public_product_by_id(product_id: str):
     """Fetch a single active product by UUID — used by product.html"""
     result = (
         supabase.table("products")
-        .select("id,name,description,price,image_url,images,category_id")
+        .select("id,name,description,price,image_url,images,category_id,created_at")
         .eq("id", product_id)
         .eq("active", True)
         .execute()
@@ -293,10 +305,7 @@ def public_product_by_id(product_id: str):
 
 @app.get("/review-videos")
 def public_review_videos(product_id: Optional[str] = Query(None)):
-    """
-    Returns all ACTIVE review videos for the storefront.
-    Optional ?product_id=<uuid> to filter by product.
-    """
+    """Returns all ACTIVE review videos. Optional ?product_id= to filter."""
     query = (
         supabase.table("review_videos")
         .select("id,video_url,thumbnail_url,reviewer_name,reviewer_handle,caption,product_id,sort_order")
@@ -308,6 +317,114 @@ def public_review_videos(product_id: Optional[str] = Query(None)):
         query = query.eq("product_id", product_id)
     result = query.execute()
     return {"review_videos": result.data}
+
+
+# ── Newsletter ────────────────────────────────────────────────────────────────
+
+@app.post("/newsletter")
+def subscribe_newsletter(body: NewsletterRequest):
+    """
+    Subscribe an email address to the newsletter.
+    Requires a `newsletter_subscribers` table:
+      - email (text, primary key / unique)
+      - subscribed_at (timestamptz, default now())
+    """
+    try:
+        supabase.table("newsletter_subscribers").upsert(
+            {"email": body.email},
+            on_conflict="email"
+        ).execute()
+    except Exception:
+        # Table may not exist yet — silently pass to avoid breaking the frontend
+        pass
+    return {"success": True, "message": "Subscribed successfully"}
+
+
+# ── Subscriptions (Subscribe & Save) ─────────────────────────────────────────
+
+@app.post("/subscriptions")
+def create_subscription(body: SubscriptionRequest):
+    """
+    Create a Subscribe & Save record with 15% discount.
+
+    Requires a `subscriptions` table:
+      id uuid default gen_random_uuid() primary key,
+      product_id uuid references products(id),
+      product_name text,
+      base_price int,
+      discounted_price int,
+      discount_pct float,
+      customer_name text,
+      customer_email text,
+      customer_phone text,
+      delivery_address jsonb,
+      frequency_days int,
+      status text default 'active',  -- active | paused | cancelled
+      created_at timestamptz default now()
+    """
+    prod = (
+        supabase.table("products")
+        .select("id,name,price")
+        .eq("id", body.product_id)
+        .eq("active", True)
+        .execute()
+    )
+    if not prod.data:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    product = prod.data[0]
+    discounted_price = int(product["price"] * (1 - body.discount_pct / 100))
+
+    result = supabase.table("subscriptions").insert({
+        "product_id":       body.product_id,
+        "product_name":     product["name"],
+        "base_price":       product["price"],
+        "discounted_price": discounted_price,
+        "discount_pct":     body.discount_pct,
+        "customer_name":    body.customer_name,
+        "customer_email":   body.customer_email,
+        "customer_phone":   body.customer_phone,
+        "delivery_address": body.delivery_address.model_dump(),
+        "frequency_days":   body.frequency_days,
+        "status":           "active",
+    }).execute()
+
+    return {
+        "success":         True,
+        "subscription_id": result.data[0]["id"] if result.data else None,
+        "discounted_price": discounted_price,
+        "message":         f"Subscribed! You save {body.discount_pct:.0f}% on every delivery."
+    }
+
+@app.get("/subscriptions")
+def get_subscriptions_by_email(email: str = Query(..., description="Customer email")):
+    """Get all subscriptions for a customer by email."""
+    result = (
+        supabase.table("subscriptions")
+        .select("*")
+        .eq("customer_email", email)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return {"subscriptions": result.data}
+
+@app.patch("/subscriptions/{subscription_id}/status")
+def update_subscription_status(
+    subscription_id: str,
+    status: str = Query(..., description="active | paused | cancelled"),
+):
+    """Allow customers to pause or cancel their subscription."""
+    if status not in ("active", "paused", "cancelled"):
+        raise HTTPException(status_code=400, detail="status must be: active | paused | cancelled")
+    result = (
+        supabase.table("subscriptions")
+        .update({"status": status})
+        .eq("id", subscription_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    return {"success": True, "subscription": result.data[0]}
 
 
 # ── Customer Profile & Order History ─────────────────────────────────────────
@@ -343,6 +460,143 @@ def get_order_detail(order_id: str):
     return {"order": result.data[0]}
 
 
+# ── Blog (public) ─────────────────────────────────────────────────────────────
+
+@app.get("/blog")
+def public_blog_posts(
+    category: Optional[str] = Query(None, description="Filter by category slug"),
+    limit:    int            = Query(20, le=50, description="Max posts to return"),
+):
+    """
+    Return published blog posts, newest first.
+    Requires a `blog_posts` table — silently returns [] if not yet created.
+
+    Table schema:
+      id uuid default gen_random_uuid() primary key,
+      slug text unique not null,
+      title text not null,
+      excerpt text,
+      content text,          -- HTML body
+      category text,         -- nutrition | skincare | wellness | guides
+      cover_url text,
+      author text default 'Prottiva Team',
+      published_at date,
+      read_time int default 5,
+      active boolean default true,
+      created_at timestamptz default now()
+    """
+    try:
+        query = (
+            supabase.table("blog_posts")
+            .select("id,slug,title,excerpt,category,cover_url,author,published_at,read_time")
+            .eq("active", True)
+            .order("published_at", desc=True)
+            .limit(limit)
+        )
+        if category:
+            query = query.eq("category", category)
+        result = query.execute()
+        return {"posts": result.data}
+    except Exception:
+        return {"posts": []}
+
+@app.get("/blog/{slug}")
+def public_blog_post(slug: str):
+    """Return a single published blog post by slug (full content)."""
+    try:
+        result = (
+            supabase.table("blog_posts")
+            .select("*")
+            .eq("slug", slug)
+            .eq("active", True)
+            .execute()
+        )
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Post not found")
+        return {"post": result.data[0]}
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+
+# ── Blog Admin ────────────────────────────────────────────────────────────────
+
+@app.get("/admin/blog", dependencies=[Depends(verify_admin)])
+def admin_list_blog_posts():
+    """List all blog posts (active and inactive) for admin."""
+    try:
+        result = (
+            supabase.table("blog_posts")
+            .select("id,slug,title,category,active,published_at,read_time")
+            .order("published_at", desc=True)
+            .execute()
+        )
+        return {"posts": result.data}
+    except Exception:
+        return {"posts": []}
+
+@app.post("/admin/blog", dependencies=[Depends(verify_admin)], status_code=201)
+def admin_create_blog_post(body: BlogPostCreate):
+    """Create a new blog post."""
+    # Check for duplicate slug
+    try:
+        existing = supabase.table("blog_posts").select("id").eq("slug", body.slug).execute()
+        if existing.data:
+            raise HTTPException(status_code=409, detail=f"Slug '{body.slug}' already exists")
+        result = supabase.table("blog_posts").insert(body.model_dump()).execute()
+        return {"post": result.data[0] if result.data else {}}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.patch("/admin/blog/{slug}", dependencies=[Depends(verify_admin)])
+def admin_update_blog_post(slug: str, body: BlogPostUpdate):
+    """Partially update a blog post by slug."""
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    result = supabase.table("blog_posts").update(updates).eq("slug", slug).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"post": result.data[0]}
+
+@app.delete("/admin/blog/{slug}", dependencies=[Depends(verify_admin)])
+def admin_delete_blog_post(slug: str):
+    """Soft-delete a blog post (sets active=False)."""
+    result = supabase.table("blog_posts").update({"active": False}).eq("slug", slug).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"success": True, "slug": slug}
+
+
+# ── Admin: Subscriptions ──────────────────────────────────────────────────────
+
+@app.get("/admin/subscriptions", dependencies=[Depends(verify_admin)])
+def admin_list_subscriptions(
+    status: Optional[str] = Query(None, description="active | paused | cancelled")
+):
+    """List all subscriptions (optionally filtered by status)."""
+    try:
+        query = supabase.table("subscriptions").select("*").order("created_at", desc=True)
+        if status:
+            query = query.eq("status", status)
+        result = query.execute()
+        return {"subscriptions": result.data}
+    except Exception:
+        return {"subscriptions": []}
+
+@app.get("/admin/newsletter-subscribers", dependencies=[Depends(verify_admin)])
+def admin_list_newsletter_subscribers():
+    """List all newsletter subscribers."""
+    try:
+        result = supabase.table("newsletter_subscribers").select("*").order("subscribed_at", desc=True).execute()
+        return {"subscribers": result.data, "count": len(result.data)}
+    except Exception:
+        return {"subscribers": [], "count": 0}
+
+
 # ── Checkout: Create Order ────────────────────────────────────────────────────
 
 @app.post("/create-order")
@@ -354,6 +608,9 @@ async def create_order(body: CreateOrderRequest):
     if not phone.lstrip("+").isdigit() or len(phone.lstrip("+")) < 10:
         raise HTTPException(status_code=400, detail="Invalid phone number")
 
+    # Check if any item is a subscription
+    has_subscription = any(getattr(i, 'is_subscription', False) for i in body.items)
+
     rp_order = await razorpay_create_order(
         amount=body.amount,
         currency="INR",
@@ -362,6 +619,7 @@ async def create_order(body: CreateOrderRequest):
             "customer_name":  body.name,
             "customer_email": body.email,
             "customer_phone": body.phone,
+            "has_subscription": str(has_subscription),
         },
     )
 
@@ -406,6 +664,30 @@ def verify_payment(body: VerifyPaymentRequest):
     }).eq("razorpay_order_id", body.razorpay_order_id).select("*").execute()
 
     order = result.data[0] if result.data else {}
+
+    # Auto-create subscription records for any subscription items
+    if order:
+        items = order.get("items", [])
+        for item in items:
+            if item.get("is_subscription"):
+                try:
+                    supabase.table("subscriptions").insert({
+                        "product_id":       item.get("id"),
+                        "product_name":     item.get("name"),
+                        "base_price":       item.get("price"),
+                        "discounted_price": item.get("price"),
+                        "discount_pct":     15.0,
+                        "customer_name":    order.get("customer_name"),
+                        "customer_email":   order.get("customer_email"),
+                        "customer_phone":   order.get("customer_phone"),
+                        "delivery_address": order.get("delivery_address"),
+                        "frequency_days":   int(item.get("sub_frequency") or 60),
+                        "status":           "active",
+                        "purchase_id":      order.get("id"),
+                    }).execute()
+                except Exception:
+                    pass  # Don't fail payment verification if subscription write fails
+
     return {
         "success":           True,
         "order":             order,

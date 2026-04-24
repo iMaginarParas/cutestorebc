@@ -1,6 +1,6 @@
 import os
-from fastapi import APIRouter, HTTPException, Depends, Header
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Depends, Header, Query
+from pydantic import BaseModel, EmailStr
 from supabase import create_client, Client
 from typing import Optional, List
 
@@ -41,8 +41,8 @@ class ProductUpdate(BaseModel):
 class CategoryCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    slug: str                         # e.g. "accessories", "clothing"
-    image_url: Optional[str] = None  # category thumbnail image
+    slug: str
+    image_url: Optional[str] = None
     active: bool = True
 
 class CategoryUpdate(BaseModel):
@@ -54,16 +54,63 @@ class CategoryUpdate(BaseModel):
 
 
 # ── Site Assets Schemas ────────────────────────────────────────────────────────
-# One row per slot in `site_assets` table.
-# Valid keys:  logo | banner_1 | banner_2 | banner_3
 
 VALID_ASSET_KEYS = {"logo", "banner_1", "banner_2", "banner_3"}
 
 class SiteAssetUpsert(BaseModel):
-    url: str                          # image URL returned by /admin/upload-image
-    alt: Optional[str] = None        # alt text / accessible label
+    url: str
+    alt: Optional[str] = None
     active: bool = True
-    link_url: Optional[str] = None   # click-through URL (banners only)
+    link_url: Optional[str] = None
+
+
+# ── Review Video Schemas ───────────────────────────────────────────────────────
+
+class ReviewVideoCreate(BaseModel):
+    video_url: str
+    thumbnail_url: Optional[str] = None
+    reviewer_name: str
+    reviewer_handle: Optional[str] = None
+    caption: Optional[str] = None
+    product_id: Optional[str] = None
+    sort_order: int = 0
+    active: bool = True
+
+class ReviewVideoUpdate(BaseModel):
+    video_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    reviewer_name: Optional[str] = None
+    reviewer_handle: Optional[str] = None
+    caption: Optional[str] = None
+    product_id: Optional[str] = None
+    sort_order: Optional[int] = None
+    active: Optional[bool] = None
+
+
+# ── Blog Schemas ───────────────────────────────────────────────────────────────
+
+class BlogPostCreate(BaseModel):
+    slug: str
+    title: str
+    excerpt: Optional[str] = None
+    content: Optional[str] = None    # HTML body
+    category: Optional[str] = None  # nutrition | skincare | wellness | guides
+    cover_url: Optional[str] = None
+    author: Optional[str] = "Prottiva Team"
+    published_at: Optional[str] = None
+    read_time: Optional[int] = 5
+    active: bool = True
+
+class BlogPostUpdate(BaseModel):
+    title: Optional[str] = None
+    excerpt: Optional[str] = None
+    content: Optional[str] = None
+    category: Optional[str] = None
+    cover_url: Optional[str] = None
+    author: Optional[str] = None
+    published_at: Optional[str] = None
+    read_time: Optional[int] = None
+    active: Optional[bool] = None
 
 
 # ── Router ─────────────────────────────────────────────────────────────────────
@@ -160,33 +207,12 @@ def delete_category(category_id: str, supabase: Client = Depends(get_supabase)):
 
 @router.get("/site-assets", dependencies=[Depends(verify_admin)])
 def get_all_site_assets(supabase: Client = Depends(get_supabase)):
-    """
-    Returns all asset slots as a dict keyed by slot name.
-    Missing slots are returned as null so the frontend always sees all 4 keys.
-
-    Response shape:
-    {
-      "assets": {
-        "logo":     { "key": "logo", "url": "...", "alt": "Store Logo", "active": true, "link_url": null },
-        "banner_1": { ... },
-        "banner_2": null,
-        "banner_3": { ... }
-      }
-    }
-    """
     result = supabase.table("site_assets").select("*").execute()
     by_key = {row["key"]: row for row in result.data}
     return {"assets": {k: by_key.get(k) for k in VALID_ASSET_KEYS}}
 
 @router.put("/site-assets/{key}", dependencies=[Depends(verify_admin)])
 def upsert_site_asset(key: str, body: SiteAssetUpsert, supabase: Client = Depends(get_supabase)):
-    """
-    Create or replace a slot.  key must be: logo | banner_1 | banner_2 | banner_3
-
-    Typical flow:
-      1. POST /admin/upload-image  → get back { url }
-      2. PUT  /admin/site-assets/banner_1  { "url": "<url>", "alt": "Summer Sale", "link_url": "/sale" }
-    """
     if key not in VALID_ASSET_KEYS:
         raise HTTPException(
             status_code=400,
@@ -204,7 +230,6 @@ def upsert_site_asset(key: str, body: SiteAssetUpsert, supabase: Client = Depend
 
 @router.patch("/site-assets/{key}/toggle", dependencies=[Depends(verify_admin)])
 def toggle_site_asset_active(key: str, supabase: Client = Depends(get_supabase)):
-    """Toggle active/inactive on a banner without deleting it."""
     if key not in VALID_ASSET_KEYS:
         raise HTTPException(status_code=400, detail=f"Invalid key '{key}'")
     row = supabase.table("site_assets").select("active").eq("key", key).execute()
@@ -215,41 +240,16 @@ def toggle_site_asset_active(key: str, supabase: Client = Depends(get_supabase))
 
 @router.delete("/site-assets/{key}", dependencies=[Depends(verify_admin)])
 def delete_site_asset(key: str, supabase: Client = Depends(get_supabase)):
-    """Remove an asset slot entirely (clears the image)."""
     if key not in VALID_ASSET_KEYS:
         raise HTTPException(status_code=400, detail=f"Invalid key '{key}'")
     supabase.table("site_assets").delete().eq("key", key).execute()
     return {"deleted": True, "key": key}
 
 
-# ── Review Video Schemas ───────────────────────────────────────────────────────
-
-class ReviewVideoCreate(BaseModel):
-    video_url: str                        # URL of the uploaded vertical video
-    thumbnail_url: Optional[str] = None  # Optional poster/thumbnail image URL
-    reviewer_name: str                    # Display name shown below the video
-    reviewer_handle: Optional[str] = None # e.g. "@username" (optional)
-    caption: Optional[str] = None        # Short review caption / quote
-    product_id: Optional[str] = None     # Link to a specific product (optional)
-    sort_order: int = 0                  # Lower = shown first
-    active: bool = True
-
-class ReviewVideoUpdate(BaseModel):
-    video_url: Optional[str] = None
-    thumbnail_url: Optional[str] = None
-    reviewer_name: Optional[str] = None
-    reviewer_handle: Optional[str] = None
-    caption: Optional[str] = None
-    product_id: Optional[str] = None
-    sort_order: Optional[int] = None
-    active: Optional[bool] = None
-
-
 # ── Review Video Routes ────────────────────────────────────────────────────────
 
 @router.get("/review-videos", dependencies=[Depends(verify_admin)])
 def list_review_videos(supabase: Client = Depends(get_supabase)):
-    """List all review videos (active and inactive), ordered by sort_order."""
     result = (
         supabase.table("review_videos")
         .select("*")
@@ -261,14 +261,6 @@ def list_review_videos(supabase: Client = Depends(get_supabase)):
 
 @router.post("/review-videos", dependencies=[Depends(verify_admin)], status_code=201)
 def create_review_video(body: ReviewVideoCreate, supabase: Client = Depends(get_supabase)):
-    """
-    Add a new review video.
-
-    Typical flow:
-      1. POST /admin/upload-video  → get back { url }           (for the video)
-      2. POST /admin/upload-image  → get back { url }           (for the thumbnail, optional)
-      3. POST /admin/review-videos { video_url, reviewer_name, … }
-    """
     result = supabase.table("review_videos").insert({
         "video_url":       body.video_url,
         "thumbnail_url":   body.thumbnail_url,
@@ -283,7 +275,6 @@ def create_review_video(body: ReviewVideoCreate, supabase: Client = Depends(get_
 
 @router.patch("/review-videos/{video_id}", dependencies=[Depends(verify_admin)])
 def update_review_video(video_id: str, body: ReviewVideoUpdate, supabase: Client = Depends(get_supabase)):
-    """Update any field of a review video (partial update)."""
     updates = body.model_dump(exclude_none=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -294,7 +285,6 @@ def update_review_video(video_id: str, body: ReviewVideoUpdate, supabase: Client
 
 @router.patch("/review-videos/{video_id}/toggle", dependencies=[Depends(verify_admin)])
 def toggle_review_video_active(video_id: str, supabase: Client = Depends(get_supabase)):
-    """Toggle a review video active/inactive without deleting it."""
     row = supabase.table("review_videos").select("active").eq("id", video_id).execute()
     if not row.data:
         raise HTTPException(status_code=404, detail="Review video not found")
@@ -308,7 +298,6 @@ def toggle_review_video_active(video_id: str, supabase: Client = Depends(get_sup
 
 @router.delete("/review-videos/{video_id}", dependencies=[Depends(verify_admin)])
 def delete_review_video(video_id: str, supabase: Client = Depends(get_supabase)):
-    """Permanently delete a review video entry (does NOT delete the file from storage)."""
     result = supabase.table("review_videos").delete().eq("id", video_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Review video not found")
@@ -316,19 +305,10 @@ def delete_review_video(video_id: str, supabase: Client = Depends(get_supabase))
 
 @router.patch("/review-videos/reorder", dependencies=[Depends(verify_admin)])
 def reorder_review_videos(
-    order: List[dict],          # [{"id": "...", "sort_order": 0}, …]
+    order: List[dict],
     supabase: Client = Depends(get_supabase),
 ):
-    """
-    Bulk-update sort_order so the frontend can drag-and-drop reorder.
-
-    Body example:
-      [
-        { "id": "uuid-1", "sort_order": 0 },
-        { "id": "uuid-2", "sort_order": 1 },
-        { "id": "uuid-3", "sort_order": 2 }
-      ]
-    """
+    """Bulk-update sort_order for drag-and-drop reordering."""
     for item in order:
         if "id" not in item or "sort_order" not in item:
             raise HTTPException(status_code=400, detail="Each item must have 'id' and 'sort_order'")
@@ -336,16 +316,162 @@ def reorder_review_videos(
     return {"reordered": True, "count": len(order)}
 
 
+# ── Blog Admin Routes ──────────────────────────────────────────────────────────
+
+@router.get("/blog", dependencies=[Depends(verify_admin)])
+def admin_list_blog_posts(
+    supabase: Client = Depends(get_supabase),
+    active: Optional[bool] = Query(None, description="Filter by active status")
+):
+    """List all blog posts for admin panel."""
+    try:
+        query = (
+            supabase.table("blog_posts")
+            .select("id,slug,title,category,active,published_at,read_time,author")
+            .order("published_at", desc=True)
+        )
+        if active is not None:
+            query = query.eq("active", active)
+        result = query.execute()
+        return {"posts": result.data}
+    except Exception:
+        return {"posts": []}
+
+@router.post("/blog", dependencies=[Depends(verify_admin)], status_code=201)
+def admin_create_blog_post(body: BlogPostCreate, supabase: Client = Depends(get_supabase)):
+    """Create a new blog post."""
+    try:
+        existing = supabase.table("blog_posts").select("id").eq("slug", body.slug).execute()
+        if existing.data:
+            raise HTTPException(status_code=409, detail=f"Slug '{body.slug}' already exists")
+        result = supabase.table("blog_posts").insert(body.model_dump()).execute()
+        return {"post": result.data[0] if result.data else {}}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.patch("/blog/{slug}", dependencies=[Depends(verify_admin)])
+def admin_update_blog_post(slug: str, body: BlogPostUpdate, supabase: Client = Depends(get_supabase)):
+    """Partially update a blog post by slug."""
+    updates = body.model_dump(exclude_none=True)
+    if not updates:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    result = supabase.table("blog_posts").update(updates).eq("slug", slug).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"post": result.data[0]}
+
+@router.delete("/blog/{slug}", dependencies=[Depends(verify_admin)])
+def admin_delete_blog_post(slug: str, supabase: Client = Depends(get_supabase)):
+    """Soft-delete a blog post."""
+    result = supabase.table("blog_posts").update({"active": False}).eq("slug", slug).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"success": True, "slug": slug}
+
+
+# ── Subscription Admin Routes ──────────────────────────────────────────────────
+
+@router.get("/subscriptions", dependencies=[Depends(verify_admin)])
+def admin_list_subscriptions(
+    supabase: Client = Depends(get_supabase),
+    status: Optional[str] = Query(None, description="active | paused | cancelled")
+):
+    """List all subscriptions, optionally filtered by status."""
+    try:
+        query = (
+            supabase.table("subscriptions")
+            .select("*")
+            .order("created_at", desc=True)
+        )
+        if status:
+            query = query.eq("status", status)
+        result = query.execute()
+        return {"subscriptions": result.data, "count": len(result.data)}
+    except Exception:
+        return {"subscriptions": [], "count": 0}
+
+@router.patch("/subscriptions/{subscription_id}", dependencies=[Depends(verify_admin)])
+def admin_update_subscription(
+    subscription_id: str,
+    status: str = Query(..., description="active | paused | cancelled"),
+    supabase: Client = Depends(get_supabase),
+):
+    """Update subscription status from admin panel."""
+    if status not in ("active", "paused", "cancelled"):
+        raise HTTPException(status_code=400, detail="status must be: active | paused | cancelled")
+    result = (
+        supabase.table("subscriptions")
+        .update({"status": status})
+        .eq("id", subscription_id)
+        .execute()
+    )
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Subscription not found")
+    return {"subscription": result.data[0]}
+
+
+# ── Newsletter Admin Routes ────────────────────────────────────────────────────
+
+@router.get("/newsletter-subscribers", dependencies=[Depends(verify_admin)])
+def admin_list_newsletter_subscribers(supabase: Client = Depends(get_supabase)):
+    """List all newsletter subscribers."""
+    try:
+        result = (
+            supabase.table("newsletter_subscribers")
+            .select("*")
+            .order("subscribed_at", desc=True)
+            .execute()
+        )
+        return {"subscribers": result.data, "count": len(result.data)}
+    except Exception:
+        return {"subscribers": [], "count": 0}
+
+@router.delete("/newsletter-subscribers/{email}", dependencies=[Depends(verify_admin)])
+def admin_delete_newsletter_subscriber(email: str, supabase: Client = Depends(get_supabase)):
+    """Unsubscribe an email from the newsletter."""
+    supabase.table("newsletter_subscribers").delete().eq("email", email).execute()
+    return {"deleted": True, "email": email}
+
+
 # ── Purchase / Order Routes ────────────────────────────────────────────────────
 
 @router.get("/purchases", dependencies=[Depends(verify_admin)])
-def list_purchases(supabase: Client = Depends(get_supabase)):
-    result = supabase.table("purchases").select("*").order("created_at", desc=True).execute()
+def list_purchases(
+    supabase: Client = Depends(get_supabase),
+    status: Optional[str] = Query(None, description="paid | pending | failed"),
+    limit: int = Query(100, le=500),
+):
+    """List all purchases, optionally filtered by payment status."""
+    query = (
+        supabase.table("purchases")
+        .select("*")
+        .order("created_at", desc=True)
+        .limit(limit)
+    )
+    if status:
+        query = query.eq("status", status)
+    result = query.execute()
     return {"purchases": result.data}
 
 @router.get("/purchases/{purchase_id}", dependencies=[Depends(verify_admin)])
 def get_purchase(purchase_id: str, supabase: Client = Depends(get_supabase)):
     result = supabase.table("purchases").select("*").eq("id", purchase_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Purchase not found")
+    return {"purchase": result.data[0]}
+
+@router.patch("/purchases/{purchase_id}/status", dependencies=[Depends(verify_admin)])
+def admin_update_purchase_status(
+    purchase_id: str,
+    status: str = Query(..., description="paid | pending | failed | refunded"),
+    supabase: Client = Depends(get_supabase),
+):
+    """Manually update a purchase status (e.g. mark as refunded)."""
+    if status not in ("paid", "pending", "failed", "refunded"):
+        raise HTTPException(status_code=400, detail="Invalid status")
+    result = supabase.table("purchases").update({"status": status}).eq("id", purchase_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Purchase not found")
     return {"purchase": result.data[0]}
