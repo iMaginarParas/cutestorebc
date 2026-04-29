@@ -933,11 +933,8 @@ async def skin_check(file: UploadFile = File(...)):
     if len(data) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Image too large (max 5 MB)")
 
-    import base64
-    b64 = base64.b64encode(data).decode()
-    data_uri = f"data:{content_type};base64,{b64}"
-
-    # Upload original image to Supabase Storage for persistence
+    # Upload original image to Supabase Storage first —
+    # we need the public URL to pass into Replicate's image_input field.
     ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(content_type, ".jpg")
     original_filename = f"skin-checks/original/{uuid.uuid4().hex}{ext}"
     upload_url = f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}/{original_filename}"
@@ -956,10 +953,17 @@ async def skin_check(file: UploadFile = File(...)):
         if up.status_code in (200, 201):
             original_url = f"{SUPABASE_URL}/storage/v1/object/public/{STORAGE_BUCKET}/{original_filename}"
 
+    if not original_url:
+        raise HTTPException(status_code=500, detail="Failed to upload image. Please try again.")
+
+    # Call Replicate seedream-4.5 with the public image URL in image_input.
+    # The model does img-to-img generation — it uses the uploaded face as reference
+    # and applies the prompt to enhance/transform the skin.
     SKIN_PROMPT = (
-        "Portrait photo of the same person with visibly healthier, clearer, and more radiant skin. "
-        "Smooth texture, even tone, natural glow, well-hydrated complexion. "
-        "Subtle enhancement, realistic, same face and background, photorealistic."
+        "The same person with visibly healthier, clearer, and more radiant skin. "
+        "Smooth texture, even skin tone, natural glow, well-hydrated glowing complexion. "
+        "Subtle and realistic enhancement, same face, same background, same lighting. "
+        "Photorealistic beauty portrait."
     )
 
     replicate_headers = {
@@ -977,11 +981,10 @@ async def skin_check(file: UploadFile = File(...)):
             json={
                 "input": {
                     "prompt": SKIN_PROMPT,
-                    "image": data_uri,
-                    "aspect_ratio": "1:1",
-                    "guidance_scale": 3.5,
-                    "num_inference_steps": 28,
-                    "seed": 42,
+                    "image_input": [original_url],
+                    "aspect_ratio": "match_input_image",
+                    "size": "2K",
+                    "sequential_image_generation": "disabled",
                 }
             },
         )
