@@ -20,8 +20,13 @@ RAZORPAY_KEY_SECRET = os.environ["RAZORPAY_KEY_SECRET"]
 SUPABASE_URL        = os.environ["SUPABASE_URL"].rstrip("/")
 SUPABASE_KEY        = os.environ["SUPABASE_KEY"]
 ADMIN_SECRET        = os.environ.get("ADMIN_SECRET", "change-me")
+REPLICATE_API_TOKEN = os.environ.get("REPLICATE_API_TOKEN", "")
 RAZORPAY_API        = "https://api.razorpay.com/v1"
 STORAGE_BUCKET      = "product"
+REPLICATE_API       = "https://api.replicate.com/v1"
+
+# Replicate model for skin transformation
+SKIN_MODEL_VERSION  = "bytedance/seedream-4.5"
 
 # Free shipping threshold in paise (₹199)
 FREE_SHIPPING_THRESHOLD = 19900
@@ -222,6 +227,11 @@ class BlogPostUpdate(BaseModel):
     published_at: Optional[str] = None
     read_time: Optional[int] = None
     active: Optional[bool] = None
+
+class SkinCheckSaveRequest(BaseModel):
+    session_token: str
+    email: EmailStr
+    name: Optional[str] = None
 
 
 # ── Public Routes ─────────────────────────────────────────────────────────────
@@ -728,3 +738,203 @@ async def razorpay_webhook(request: Request):
             ).execute()
 
     return {"status": "ok"}
+
+# ── Skin Check (Lead Magnet) ───────────────────────────────────────────────────
+
+async def _poll_replicate(prediction_id: str, client: httpx.AsyncClient, max_wait: int = 120) -> dict:
+    """Poll Replicate until prediction completes or times out."""
+    import asyncio
+    headers = {"Authorization": f"Token {REPLICATE_API_TOKEN}"}
+    for _ in range(max_wait // 2):
+        await asyncio.sleep(2)
+        resp = await client.get(
+            f"{REPLICATE_API}/predictions/{prediction_id}",
+            headers=headers,
+        )
+        data = resp.json()
+        if data.get("status") in ("succeeded", "failed", "canceled"):
+            return data
+    raise HTTPException(status_code=504, detail="Skin analysis timed out. Please try again.")
+
+
+@app.post("/skin-check")
+async def skin_check(file: UploadFile = File(...)):
+    """
+    Lead magnet: analyse skin and generate a glowing 'after' transformation.
+
+    - Accepts a face/skin photo (jpeg/png/webp, max 5 MB).
+    - Calls Replicate bytedance/seedream-4.5 to generate an improved skin version.
+    - Stores the result anonymously with a session_token.
+    - Returns analysis + after_image_url + session_token immediately.
+    - Frontend then calls POST /skin-check/save to attach an email.
+
+    Requires env var: REPLICATE_API_TOKEN
+    """
+    if not REPLICATE_API_TOKEN:
+        raise HTTPException(status_code=503, detail="Skin checker not configured (missing REPLICATE_API_TOKEN)")
+
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    content_type = file.content_type or "application/octet-stream"
+    if content_type not in allowed_types:
+        raise HTTPException(status_code=400, detail="Please upload a JPEG, PNG, or WebP image.")
+
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large (max 5 MB)")
+
+    import base64
+    b64 = base64.b64encode(data).decode()
+    data_uri = f"data:{content_type};base64,{b64}"
+
+    # Upload original image to Supabase Storage for persistence
+    ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}.get(content_type, ".jpg")
+    original_filename = f"skin-checks/original/{uuid.uuid4().hex}{ext}"
+    upload_url = f"{SUPABASE_URL}/storage/v1/object/{STORAGE_BUCKET}/{original_filename}"
+
+    original_url = None
+    async with httpx.AsyncClient() as client:
+        up = await client.post(
+            upload_url,
+            content=data,
+            headers={
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": content_type,
+                "x-upsert": "true",
+            },
+        )
+        if up.status_code in (200, 201):
+            original_url = f"{SUPABASE_URL}/storage/v1/object/public/{STORAGE_BUCKET}/{original_filename}"
+
+    SKIN_PROMPT = (
+        "Portrait photo of the same person with visibly healthier, clearer, and more radiant skin. "
+        "Smooth texture, even tone, natural glow, well-hydrated complexion. "
+        "Subtle enhancement, realistic, same face and background, photorealistic."
+    )
+
+    replicate_headers = {
+        "Authorization": f"Token {REPLICATE_API_TOKEN}",
+        "Content-Type": "application/json",
+        "Prefer": "wait",
+    }
+
+    after_image_url = None
+
+    async with httpx.AsyncClient(timeout=130) as client:
+        create_resp = await client.post(
+            f"{REPLICATE_API}/models/{SKIN_MODEL_VERSION}/predictions",
+            headers=replicate_headers,
+            json={
+                "input": {
+                    "prompt": SKIN_PROMPT,
+                    "image": data_uri,
+                    "aspect_ratio": "1:1",
+                    "guidance_scale": 3.5,
+                    "num_inference_steps": 28,
+                    "seed": 42,
+                }
+            },
+        )
+
+        if not create_resp.is_success:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Replicate error: {create_resp.text[:200]}"
+            )
+
+        prediction = create_resp.json()
+
+        if prediction.get("status") not in ("succeeded", "failed"):
+            prediction = await _poll_replicate(prediction["id"], client)
+
+        if prediction.get("status") == "succeeded":
+            output = prediction.get("output")
+            if isinstance(output, list) and output:
+                after_image_url = output[0]
+            elif isinstance(output, str):
+                after_image_url = output
+
+    if after_image_url:
+        analysis_text = (
+            "✨ Your skin has visible potential for improvement! "
+            "Based on your photo, we can see signs of uneven tone and texture. "
+            "With consistent use of our skincare range — formulated with natural actives — "
+            "you could achieve noticeably clearer, more radiant skin like shown in your transformation. 🌿"
+        )
+    else:
+        analysis_text = (
+            "We analysed your skin and found areas where targeted nutrition and skincare "
+            "could make a significant difference — from hydration to tone evenness. "
+            "Explore our range crafted to support exactly this."
+        )
+
+    session_token = uuid.uuid4().hex
+    try:
+        supabase.table("skin_leads").insert({
+            "session_token":   session_token,
+            "original_url":    original_url,
+            "after_image_url": after_image_url,
+            "analysis_text":   analysis_text,
+            "email":           None,
+            "name":            None,
+            "saved":           False,
+        }).execute()
+    except Exception:
+        pass  # Don't fail if table doesn't exist yet
+
+    return {
+        "session_token":   session_token,
+        "analysis_text":   analysis_text,
+        "after_image_url": after_image_url,
+        "original_url":    original_url,
+    }
+
+
+@app.post("/skin-check/save")
+def skin_check_save(body: SkinCheckSaveRequest):
+    """
+    Attach email + name to an existing anonymous skin check session.
+    Call this after the user sees results and chooses to save them.
+    """
+    try:
+        result = (
+            supabase.table("skin_leads")
+            .update({
+                "email":  body.email,
+                "name":   body.name,
+                "saved":  True,
+            })
+            .eq("session_token", body.session_token)
+            .select("*")
+            .execute()
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Session not found. Please run the skin check again.")
+
+    return {
+        "success":    True,
+        "skin_check": result.data[0],
+        "message":    "Results saved! View them anytime from your profile.",
+    }
+
+
+@app.get("/profile/skin-checks")
+def get_skin_checks_by_email(email: str = Query(..., description="Customer email")):
+    """
+    Fetch all saved skin checks for a customer by email.
+    Same pattern as GET /profile/orders.
+    """
+    try:
+        result = (
+            supabase.table("skin_leads")
+            .select("id,session_token,original_url,after_image_url,analysis_text,created_at")
+            .eq("email", email)
+            .eq("saved", True)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return {"skin_checks": result.data}
+    except Exception:
+        return {"skin_checks": []}

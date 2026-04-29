@@ -475,3 +475,41 @@ def admin_update_purchase_status(
     if not result.data:
         raise HTTPException(status_code=404, detail="Purchase not found")
     return {"purchase": result.data[0]}
+
+# ── Skin Leads Admin Routes ────────────────────────────────────────────────────
+
+@router.get("/skin-leads", dependencies=[Depends(verify_admin)])
+def admin_list_skin_leads(
+    supabase: Client = Depends(get_supabase),
+    saved_only: bool = Query(False, description="If true, only return leads with email attached"),
+    limit: int = Query(100, le=500),
+):
+    """
+    List all skin check leads.
+    - saved_only=true  → only leads where user provided their email
+    - saved_only=false → all entries incl. anonymous tries
+    """
+    try:
+        query = (
+            supabase.table("skin_leads")
+            .select("id,session_token,email,name,original_url,after_image_url,analysis_text,saved,created_at")
+            .order("created_at", desc=True)
+            .limit(limit)
+        )
+        if saved_only:
+            query = query.eq("saved", True)
+        result = query.execute()
+        return {
+            "leads": result.data,
+            "count": len(result.data),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/skin-leads/{lead_id}", dependencies=[Depends(verify_admin)])
+def admin_delete_skin_lead(lead_id: str, supabase: Client = Depends(get_supabase)):
+    """Delete a skin lead record (and associated images should be cleaned from storage separately)."""
+    result = supabase.table("skin_leads").delete().eq("id", lead_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Skin lead not found")
+    return {"deleted": True, "id": lead_id}
