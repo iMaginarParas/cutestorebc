@@ -233,6 +233,32 @@ class SkinCheckSaveRequest(BaseModel):
     email: EmailStr
     name: Optional[str] = None
 
+class AuthRegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    name: Optional[str] = None
+
+class AuthLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+# ── Auth Helper ───────────────────────────────────────────────────────────────
+
+def get_current_user(authorization: str = Header(...)):
+    """Extract and verify Supabase JWT from Authorization: Bearer <token>"""
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    token = authorization.split(" ", 1)[1]
+    try:
+        # Use Supabase service client to get user from token
+        user_resp = supabase.auth.get_user(token)
+        if not user_resp or not user_resp.user:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+        return user_resp.user
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+
 
 # ── Public Routes ─────────────────────────────────────────────────────────────
 
@@ -435,6 +461,131 @@ def update_subscription_status(
     if not result.data:
         raise HTTPException(status_code=404, detail="Subscription not found")
     return {"success": True, "subscription": result.data[0]}
+
+
+# ── Auth Routes ───────────────────────────────────────────────────────────────
+
+@app.post("/auth/register", status_code=201)
+def auth_register(body: AuthRegisterRequest):
+    """Register a new user with email + password via Supabase Auth."""
+    try:
+        resp = supabase.auth.sign_up({
+            "email": body.email,
+            "password": body.password,
+            "options": {"data": {"name": body.name or ""}},
+        })
+        if not resp.user:
+            raise HTTPException(status_code=400, detail="Registration failed. Email may already be in use.")
+        return {
+            "message": "Account created! Please check your email to confirm your account, then log in.",
+            "user_id": resp.user.id,
+            "email": resp.user.email,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        err = str(e)
+        if "already registered" in err or "already been registered" in err:
+            raise HTTPException(status_code=409, detail="An account with this email already exists.")
+        raise HTTPException(status_code=400, detail=err)
+
+
+@app.post("/auth/login")
+def auth_login(body: AuthLoginRequest):
+    """Login with email + password. Returns access_token for subsequent requests."""
+    try:
+        resp = supabase.auth.sign_in_with_password({
+            "email": body.email,
+            "password": body.password,
+        })
+        if not resp.session:
+            raise HTTPException(status_code=401, detail="Invalid email or password.")
+        return {
+            "access_token": resp.session.access_token,
+            "refresh_token": resp.session.refresh_token,
+            "expires_in": resp.session.expires_in,
+            "user": {
+                "id": resp.user.id,
+                "email": resp.user.email,
+                "name": (resp.user.user_metadata or {}).get("name", ""),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+
+@app.post("/auth/logout")
+def auth_logout(authorization: str = Header(...)):
+    """Logout — invalidates the current session token."""
+    try:
+        supabase.auth.sign_out()
+    except Exception:
+        pass
+    return {"message": "Logged out successfully."}
+
+
+@app.post("/auth/refresh")
+def auth_refresh(body: dict):
+    """Refresh an expired access token using refresh_token."""
+    refresh_token = body.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="refresh_token required")
+    try:
+        resp = supabase.auth.refresh_session(refresh_token)
+        if not resp.session:
+            raise HTTPException(status_code=401, detail="Could not refresh session.")
+        return {
+            "access_token": resp.session.access_token,
+            "refresh_token": resp.session.refresh_token,
+            "expires_in": resp.session.expires_in,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Could not refresh session.")
+
+
+@app.get("/profile/me")
+def get_profile_me(user=Depends(get_current_user)):
+    """
+    Protected endpoint — returns the logged-in user's orders + skin checks.
+    Requires: Authorization: Bearer <access_token>
+    """
+    email = user.email
+    try:
+        orders_resp = (
+            supabase.table("purchases")
+            .select("id,razorpay_order_id,razorpay_payment_id,customer_name,customer_email,customer_phone,amount,currency,items,status,delivery_address,created_at")
+            .eq("customer_email", email)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception:
+        orders_resp = type("R", (), {"data": []})()
+
+    try:
+        skin_resp = (
+            supabase.table("skin_leads")
+            .select("id,session_token,original_url,after_image_url,analysis_text,created_at")
+            .eq("email", email)
+            .eq("saved", True)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception:
+        skin_resp = type("R", (), {"data": []})()
+
+    return {
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": (user.user_metadata or {}).get("name", ""),
+        },
+        "orders": orders_resp.data or [],
+        "skin_checks": skin_resp.data or [],
+    }
 
 
 # ── Customer Profile & Order History ─────────────────────────────────────────
