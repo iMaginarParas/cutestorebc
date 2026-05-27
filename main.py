@@ -960,10 +960,12 @@ async def skin_check(file: UploadFile = File(...)):
     # The model does img-to-img generation — it uses the uploaded face as reference
     # and applies the prompt to enhance/transform the skin.
     SKIN_PROMPT = (
-        "The same person with visibly healthier, clearer, and more radiant skin. "
-        "Smooth texture, even skin tone, natural glow, well-hydrated glowing complexion. "
-        "Subtle and realistic enhancement, same face, same background, same lighting. "
-        "Photorealistic beauty portrait."
+        "The same person with slightly healthier and clearer skin. "
+        "Minimal, natural-looking improvement — reduce minor blemishes and uneven tone only. "
+        "Keep natural pores, skin texture, and all human imperfections intact. "
+        "Do NOT over-smooth, over-brighten, or make the skin look airbrushed, waxy, or plastic. "
+        "The result must look like a real person, not a filtered or retouched photo. "
+        "Same face, same background, same lighting. Photorealistic, believable result."
     )
 
     replicate_headers = {
